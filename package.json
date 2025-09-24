@@ -1,0 +1,9 @@
+{
+  "name": "top-soccer-matches-today",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:data": "node scripts/fetch-fixtures.js"
+  },
+  "dependencies": {}
+}
