@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Top Soccer Matches — Today</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="alternate icon" href="favicon.ico">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
@@ -49,14 +51,11 @@
     </div>
 
     <script>
-      // Force the *day label* to display in UTC to avoid date shifting
       const fmtLongDate = (isoDate) =>
         new Date(isoDate + 'T00:00:00Z').toLocaleDateString(
           undefined,
           { weekday:'long', month:'long', day:'numeric', year:'numeric', timeZone: 'UTC' }
         );
-
-      // Keep kickoff times in the visitor's local time (add timeZone:'UTC' if you prefer UTC)
       const fmtTime = (iso) =>
         iso ? new Date(iso).toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' }) : 'TBD';
 
