@@ -1,10 +1,10 @@
 /**
  * Update clubs.json with the Top 30 clubs from FiveThirtyEight's SPI rankings (CSV).
- * - No API key / signup required.
- * - If the fetch or parse fails, keep the existing clubs.json.
+ * Source (stable, no redirects, no signup):
+ *   https://raw.githubusercontent.com/fivethirtyeight/data/master/soccer-spi/spi_global_rankings.csv
  *
- * Source: https://projects.fivethirtyeight.com/soccer-api/club/spi_global_rankings.csv
- * (Attribution: FiveThirtyEight; CC BY 4.0. Add a short credit in README if you like.)
+ * If fetch/parse fails, keeps the existing clubs.json so the site still works.
+ * Optional verbose logs: set env DEBUG=1
  */
 
 import fs from "node:fs/promises";
@@ -12,9 +12,9 @@ import path from "node:path";
 
 const ROOT = process.cwd();
 const CLUBS_PATH = path.join(ROOT, "clubs.json");
-const SPI_CSV_URL = "https://projects.fivethirtyeight.com/soccer-api/club/spi_global_rankings.csv";
-
+const SPI_CSV_URL = "https://raw.githubusercontent.com/fivethirtyeight/data/master/soccer-spi/spi_global_rankings.csv";
 const DEBUG = process.env.DEBUG === "1";
+
 const log = (...a) => console.log("[clubs]", ...a);
 const dbg = (...a) => DEBUG && console.log("[clubs:dbg]", ...a);
 
@@ -43,72 +43,26 @@ async function writeClubs(clubs) {
 }
 
 async function fetchSPI() {
-  dbg("fetching SPI CSV:", SPI_CSV_URL);
   const res = await fetch(SPI_CSV_URL, {
     headers: {
       "User-Agent": "top-soccer-matches clubs-updater (no-key)",
       "Accept": "text/csv, text/plain, */*",
     },
   });
-  if (!res.ok) throw new Error(`SPI fetch ${res.status}`);
+  if (!res.ok) throw new Error(`SPI fetch ${res.status} ${res.statusText}`);
   return res.text();
 }
 
-/**
- * Parse the SPI CSV.
- * Typical columns include: rank, name, league, spi, off, def, etc.
- * We'll parse CSV leniently (no external deps), take rows with a 'name',
- * keep the first 30 by 'rank' order.
- */
-function parseTop30FromCSV(csv) {
-  // Split lines, find header
-  const lines = csv.split(/\r?\n/).filter(Boolean);
-  if (lines.length < 2) return [];
-
-  const header = lines[0].split(",");
-  const idxRank = header.findIndex(h => /rank/i.test(h));
-  const idxName = header.findIndex(h => /^name$/i.test(h));
-  if (idxName === -1) return [];
-
-  const rows = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cols = splitCSVLine(lines[i]);
-    const name = cols[idxName]?.trim();
-    if (!name) continue;
-
-    // rank might be missing in some rows; use line order as fallback
-    const rank = idxRank >= 0 ? Number(cols[idxRank]) : i;
-
-    rows.push({ rank, name });
-  }
-
-  // sort by rank then take top 30
-  rows.sort((a,b) => a.rank - b.rank);
-  const names = rows.slice(0, 30).map(r => r.name);
-
-  // Dedup & keep order
-  const seen = new Set();
-  const out = [];
-  for (const n of names) {
-    const k = canon(n);
-    if (!k || seen.has(k)) continue;
-    seen.add(k);
-    out.push(n);
-  }
-  return out.slice(0, 30);
-}
-
-/** Simple CSV splitter that respects basic quoted fields */
-function splitCSVLine(line) {
+/** Split one CSV line, handling quotes/doubled quotes. */
+function splitCSV(line) {
   const out = [];
   let cur = "";
-  let inQ = false;
+  let q = false;
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
     if (ch === '"') {
-      if (inQ && line[i+1] === '"') { cur += '"'; i++; } // escaped quote
-      else inQ = !inQ;
-    } else if (ch === ',' && !inQ) {
+      if (q && line[i + 1] === '"') { cur += '"'; i++; } else { q = !q; }
+    } else if (ch === "," && !q) {
       out.push(cur);
       cur = "";
     } else {
@@ -119,13 +73,64 @@ function splitCSVLine(line) {
   return out;
 }
 
+/** Find header row & the indexes for rank + name columns. */
+function locateHeader(lines) {
+  for (let i = 0; i < Math.min(25, lines.length); i++) {
+    const cols = splitCSV(lines[i]);
+    const lower = cols.map((c) => c.trim().toLowerCase());
+    const idxName = lower.findIndex((h) => h === "name" || h === "team" || h === "club");
+    const idxRank = lower.findIndex((h) => h === "rank" || h === "global_rank" || h === "position");
+    if (idxName !== -1) return { headerIndex: i, idxName, idxRank };
+  }
+  // Fallback: assume first row is header, name at 1, rank at 0
+  return { headerIndex: 0, idxName: 1, idxRank: 0 };
+}
+
+function parseTop30(csv) {
+  // Normalize and strip BOM if present
+  if (csv.charCodeAt(0) === 0xfeff) csv = csv.slice(1);
+  const lines = csv.split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return [];
+
+  const { headerIndex, idxName, idxRank } = locateHeader(lines);
+  dbg("headerIndex:", headerIndex, "idxName:", idxName, "idxRank:", idxRank);
+
+  const rows = [];
+  for (let i = headerIndex + 1; i < lines.length; i++) {
+    const cols = splitCSV(lines[i]);
+    const name = (cols[idxName] || "").trim();
+    if (!name) continue;
+
+    let rank = i; // fallback to line order
+    if (idxRank >= 0 && idxRank < cols.length) {
+      const r = Number((cols[idxRank] || "").trim());
+      if (!Number.isNaN(r)) rank = r;
+    }
+    rows.push({ rank, name });
+  }
+
+  rows.sort((a, b) => a.rank - b.rank);
+
+  // Dedup by canonical name; keep first 30
+  const seen = new Set();
+  const out = [];
+  for (const r of rows) {
+    const k = canon(r.name);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(r.name);
+    if (out.length === 30) break;
+  }
+  return out;
+}
+
 async function main() {
   const current = await readCurrent();
 
   try {
     const csv = await fetchSPI();
-    const top30 = parseTop30FromCSV(csv);
-    dbg("parsed names:", top30.length);
+    const top30 = parseTop30(csv);
+    dbg("parsed count:", top30.length, "sample:", top30.slice(0, 5));
 
     if (top30.length < 10) {
       log("WARNING: SPI parsing returned too few clubs; keeping existing clubs.json");
@@ -142,7 +147,6 @@ async function main() {
       return;
     }
 
-    // Only write if there is an actual change
     if (JSON.stringify(current) === JSON.stringify(top30)) {
       log("no change in clubs.json (same Top 30)");
       return;
@@ -150,7 +154,7 @@ async function main() {
     await writeClubs(top30);
   } catch (e) {
     console.error("ERROR: SPI fetch/parse failed:", e.message);
-    // keep existing file; do not fail the whole workflow
+    // keep existing file; do not fail job
   }
 }
 
