@@ -7,3 +7,9 @@
   },
   "dependencies": {}
 }
+{
+  "scripts": {
+    "update:clubs": "node scripts/update-clubs.js",
+    "build:data": "node scripts/fetch-fixtures.js"
+  }
+}
