@@ -2,16 +2,15 @@ name: Daily refresh (clubs + today’s fixtures)
 
 on:
   schedule:
-    - cron: "30 4 * * *"   # Run daily at 04:30 UTC (early morning in Europe)
+    - cron: "30 4 * * *"   # 04:30 UTC (early morning Europe)
   workflow_dispatch: {}
 
 permissions:
-  contents: write  # allow committing changes back to the repo
+  contents: write
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,40 +20,31 @@ jobs:
         with:
           node-version: 20
 
-      # Update clubs.json first (your updater script)
       - name: Update top clubs from UEFA
         run: node scripts/update-clubs.js
 
-      # Build today's fixtures filtered by clubs.json
-      - name: Generate today's matches
-        env:
-          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}          # Add at least one of these in Repo Settings → Secrets
-          FOOTBALL_DATA_KEY: ${{ secrets.FOOTBALL_DATA_KEY }}
+      # No API keys needed now (OpenFootball JSON)
+      - name: Generate today's matches (OpenFootball)
         run: node scripts/fetch-fixtures.js
 
-      # Generate favicon.png + apple-touch-icon.png from Soccerball.svg
       - name: Generate icons from Soccerball.svg
         run: |
           sudo apt-get update
           sudo apt-get install -y librsvg2-bin imagemagick
-          # Fallback favicon PNG
           rsvg-convert -w 32 -h 32 Soccerball.svg -o favicon.png
-          # iOS home-screen icon (required PNG)
           rsvg-convert -w 180 -h 180 Soccerball.svg -o apple-touch-icon.png
-          # Optional .ico for legacy browsers
           convert Soccerball.svg -resize 16x16 favicon-16.png
           convert Soccerball.svg -resize 32x32 favicon-32.png
           convert Soccerball.svg -resize 48x48 favicon-48.png
           convert favicon-16.png favicon-32.png favicon-48.png favicon.ico
 
-      # Commit only if files changed
       - name: Commit & push changes
         run: |
           if [[ -n "$(git status --porcelain)" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add clubs.json data/topmatches.json favicon.png apple-touch-icon.png favicon.ico || true
-            git commit -m "chore: daily refresh (clubs + fixtures + icons)"
+            git commit -m "chore: daily refresh (clubs + fixtures from OpenFootball + icons)"
             git push
           else
             echo "No changes to commit"
