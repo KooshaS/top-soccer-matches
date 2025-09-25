@@ -1,101 +1,115 @@
 /**
- * Today-only fixtures filtered to matches where BOTH teams are in clubs.json.
- * Supports API-Football (RapidAPI) OR football-data.org. Configure one via env.
+ * Fetch today's fixtures from OpenFootball (public JSON, no API key)
+ * and write data/topmatches.json filtered by clubs.json.
+ *
+ * Sources (CC0, no key required):
+ *   - https://github.com/openfootball/football.json  (season JSON files)
+ *   - Docs + live JSON links via GitHub Pages
+ *
+ * Output shape:
+ * {
+ *   "generated_at": "<ISO>",
+ *   "date": "YYYY-MM-DD",
+ *   "matches": [{ competition, home, away, kickoff_utc, venue }]
+ * }
  */
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import fs from "node:fs/promises";
+import path from "node:path";
 
-const ROOT = path.resolve(process.cwd());
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const ROOT = process.cwd();
+const OUT = path.join(ROOT, "data", "topmatches.json");
 
-function canon(s) {
-  return s
-    .toLowerCase()
-    .replace(/\b(fc|cf|afc|sc)\b/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\s+/g, ' ')
+// --- helpers ---------------------------------------------------------------
+const canon = (s) =>
+  s.toLowerCase()
+    .replace(/\b(fc|cf|afc|sc)\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
-}
 
-async function loadClubs() {
-  const raw = await fs.readFile(path.join(ROOT, 'clubs.json'), 'utf8');
+async function loadClubSet() {
+  const raw = await fs.readFile(path.join(ROOT, "clubs.json"), "utf8");
   const { clubs } = JSON.parse(raw);
-  const set = new Set(clubs.map(canon));
-  return { clubs, set };
+  return new Set(clubs.map(canon));
 }
 
-function todayKeyUTC() {
+// Season key like "2025-26" (rolls over in July)
+function seasonKeyFor(date = new Date()) {
+  const y = date.getUTCFullYear();
+  const m = date.getUTCMonth() + 1; // 1-12
+  const start = m >= 7 ? y : y - 1;
+  const endShort = String((start + 1) % 100).padStart(2, "0");
+  return `${start}-${endShort}`;
+}
+
+function todayUTC() {
   const d = new Date();
-  d.setUTCHours(0,0,0,0);
-  return d.toISOString().slice(0,10);
+  d.setUTCHours(0, 0, 0, 0);
+  return d.toISOString().slice(0, 10);
 }
 
-async function fetchFixturesForDate(dateKey) {
-  if (process.env.RAPIDAPI_KEY) return fetchFromApiFootball(dateKey);
-  if (process.env.FOOTBALL_DATA_KEY) return fetchFromFootballData(dateKey);
-  throw new Error('No API credentials found. Set RAPIDAPI_KEY or FOOTBALL_DATA_KEY.');
+async function fetchJson(url) {
+  const res = await fetch(url, { headers: { "User-Agent": "top-matches/1.0" } });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${url}`);
+  return res.json();
 }
 
-async function fetchFromApiFootball(dateKey) {
-  const url = `https://v3.football.api-sports.io/fixtures?date=${dateKey}`;
-  const res = await fetch(url, {
-    headers: {
-      'x-rapidapi-key': process.env.RAPIDAPI_KEY,
-      'x-rapidapi-host': 'v3.football.api-sports.io'
-    }
-  });
-  if (!res.ok) throw new Error(`API-Football ${res.status}`);
-  const json = await res.json();
-  return json.response.map(x => ({
-    competition: x.league?.name || null,
-    home: x.teams?.home?.name,
-    away: x.teams?.away?.name,
-    kickoff_utc: x.fixture?.date || null,
-    venue: x.fixture?.venue?.name || null
-  }));
-}
-
-async function fetchFromFootballData(dateKey) {
-  const comps = [2002, 2014, 2015, 2019, 2021, 2024, 2017, 2016];
-  const headers = { 'X-Auth-Token': process.env.FOOTBALL_DATA_KEY };
-  const out = [];
-  for (const c of comps) {
-    const url = `https://api.football-data.org/v4/competitions/${c}/matches?dateFrom=${dateKey}&dateTo=${dateKey}`;
-    const res = await fetch(url, { headers });
-    if (res.status === 429) { await sleep(1000); continue; }
-    if (!res.ok) continue;
-    const json = await res.json();
-    for (const m of (json.matches || [])) {
-      out.push({
-        competition: json.competition?.name || m.competition?.name || null,
-        home: m.homeTeam?.name,
-        away: m.awayTeam?.name,
-        kickoff_utc: m.utcDate || null,
-        venue: null
-      });
-    }
-  }
-  return out;
-}
-
+// --- main -----------------------------------------------------------------
 async function main() {
-  const { set } = await loadClubs();
-  const date = todayKeyUTC();
-  let fixtures = [];
-  try {
-    fixtures = await fetchFixturesForDate(date);
-  } catch (e) {
-    console.error('Fetch error:', e.message);
+  const dateKey = todayUTC();
+  const season = seasonKeyFor();
+  const clubs = await loadClubSet();
+
+  // OpenFootball GitHub Pages JSON per league (see README for pattern)
+  // Example in docs: openfootball.github.io/england/2025-26/1-premierleague.json
+  // We'll pull the “big 5” leagues:
+  const leagueFeeds = [
+    { name: "Premier League", url: `https://openfootball.github.io/england/${season}/1-premierleague.json` },
+    { name: "La Liga",        url: `https://openfootball.github.io/espana/${season}/1-laliga.json` },
+    { name: "Serie A",        url: `https://openfootball.github.io/italy/${season}/1-seriea.json` },
+    { name: "Bundesliga",     url: `https://openfootball.github.io/deutschland/${season}/1-bundesliga.json` },
+    { name: "Ligue 1",        url: `https://openfootball.github.io/france/${season}/1-ligue1.json` },
+  ];
+
+  let matches = [];
+
+  for (const lf of leagueFeeds) {
+    try {
+      const data = await fetchJson(lf.url);
+      // Schema: { name, matches: [ { round, date: 'YYYY-MM-DD', team1, team2, score? } ] }
+      const todays = (data.matches || []).filter(m => m.date === dateKey);
+      for (const m of todays) {
+        const home = m.team1;
+        const away = m.team2;
+        if (!home || !away) continue;
+        // filter by your top-clubs list
+        if (clubs.has(canon(home)) && clubs.has(canon(away))) {
+          matches.push({
+            competition: lf.name,
+            home,
+            away,
+            kickoff_utc: null,   // OpenFootball fixtures are date-only; no official KO time
+            venue: null
+          });
+        }
+      }
+    } catch (e) {
+      console.warn(`Skipping ${lf.name}: ${e.message}`);
+    }
   }
-  const matches = (fixtures || []).filter(m => set.has(canon(m.home)) && set.has(canon(m.away)))
-    .sort((a,b) => (a.kickoff_utc || '').localeCompare(b.kickoff_utc || ''));
 
-  const payload = { generated_at: new Date().toISOString(), date, matches };
+  // Sort by name for stable output (no times)
+  matches.sort((a, b) => (a.home + a.away).localeCompare(b.home + b.away));
 
-  const outDir = path.join(ROOT, 'data');
-  await fs.mkdir(outDir, { recursive: true });
-  await fs.writeFile(path.join(outDir, 'topmatches.json'), JSON.stringify(payload, null, 2));
-  console.log('Wrote data/topmatches.json for', date);
+  const payload = {
+    generated_at: new Date().toISOString(),
+    date: dateKey,
+    matches
+  };
+
+  await fs.mkdir(path.dirname(OUT), { recursive: true });
+  await fs.writeFile(OUT, JSON.stringify(payload, null, 2));
+  console.log(`Wrote ${OUT} with ${matches.length} top matches for ${dateKey}`);
 }
 
 main().catch(err => { console.error(err); process.exit(1); });
