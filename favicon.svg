@@ -1,0 +1,10 @@
+<!-- favicon.svg -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Ball outline -->
+  <circle cx="32" cy="32" r="30" fill="#ffffff" stroke="#0b0b0c" stroke-width="2"/>
+  <!-- Center pentagon -->
+  <polygon points="32,20 24,26 27,36 37,36 40,26" fill="#0b0b0c"/>
+  <!-- Panel lines -->
+  <path d="M24,26 18,22 M40,26 46,22 M27,36 23,44 M37,36 41,44 M32,20 32,12"
+        stroke="#0b0b0c" stroke-width="2" fill="none" stroke-linecap="round"/>
+</svg>
