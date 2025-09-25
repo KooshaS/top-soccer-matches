@@ -1,0 +1,19 @@
+name: Test fetch UEFA clubs (manual)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  test-uefa:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run UEFA fetch test (prints Top 25)
+        run: node scripts/test-fetch-uefa.mjs
