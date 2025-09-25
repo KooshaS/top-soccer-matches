@@ -1,20 +1,5 @@
 {
-  "generated_at": "2025-09-24T12:00:00Z",
-  "date": "2025-09-24",
-  "matches": [
-    {
-      "competition": "UEFA Champions League",
-      "home": "Real Madrid",
-      "away": "Manchester City",
-      "kickoff_utc": "2025-09-24T19:00:00Z",
-      "venue": "Santiago Bernabéu"
-    },
-    {
-      "competition": "Serie A",
-      "home": "Inter",
-      "away": "Juventus",
-      "kickoff_utc": "2025-09-24T20:00:00Z",
-      "venue": "San Siro"
-    }
-  ]
+  "generated_at": "2025-09-25T04:43:24.098Z",
+  "date": "2025-09-25",
+  "matches": []
 }
