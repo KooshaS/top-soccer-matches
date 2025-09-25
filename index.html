@@ -49,11 +49,16 @@
     </div>
 
     <script>
-      const fmtTime = (iso) => iso ? new Date(iso).toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' }) : 'TBD';
-      const fmtLongDate = (isoDate) => {
-        const d = new Date(isoDate + 'T00:00:00Z');
-        return d.toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric', year:'numeric' });
-      };
+      // Force the *day label* to display in UTC to avoid date shifting
+      const fmtLongDate = (isoDate) =>
+        new Date(isoDate + 'T00:00:00Z').toLocaleDateString(
+          undefined,
+          { weekday:'long', month:'long', day:'numeric', year:'numeric', timeZone: 'UTC' }
+        );
+
+      // Keep kickoff times in the visitor's local time (add timeZone:'UTC' if you prefer UTC)
+      const fmtTime = (iso) =>
+        iso ? new Date(iso).toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' }) : 'TBD';
 
       async function load() {
         const [clubsRes, dataRes] = await Promise.all([
