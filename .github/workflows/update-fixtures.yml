@@ -1,13 +1,17 @@
-name: Update today's fixtures
+name: Daily refresh (clubs + today’s fixtures)
 
 on:
   schedule:
-    - cron: "5 9 * * *"  # daily at 09:05 UTC (~04:05 America/Chicago)
+    - cron: "30 4 * * *"   # Run daily at 04:30 UTC (early morning in Europe)
   workflow_dispatch: {}
+
+permissions:
+  contents: write  # allow committing changes back to the repo
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,21 +21,25 @@ jobs:
         with:
           node-version: 20
 
-      - name: Generate data (today only)
-        env:
-          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
-          FOOTBALL_DATA_KEY: ${{ secrets.FOOTBALL_DATA_KEY }}
-        run: |
-          node -v
-          npm run build:data || node scripts/fetch-fixtures.js
+      # Updates clubs.json from UEFA (top ~30) before building fixtures
+      - name: Update top clubs from UEFA
+        run: node scripts/update-clubs.js
 
-      - name: Commit & push
+      # Builds today's filtered fixtures into data/topmatches.json
+      - name: Generate today's matches
+        env:
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}          # Add at least one of these in Repo Settings → Secrets
+          FOOTBALL_DATA_KEY: ${{ secrets.FOOTBALL_DATA_KEY }}
+        run: node scripts/fetch-fixtures.js
+
+      # Commit only if files changed
+      - name: Commit & push changes
         run: |
           if [[ -n "$(git status --porcelain)" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add data/topmatches.json
-            git commit -m "chore: refresh today's fixtures"
+            git add clubs.json data/topmatches.json
+            git commit -m "chore: daily refresh (clubs + fixtures)"
             git push
           else
             echo "No changes to commit"
