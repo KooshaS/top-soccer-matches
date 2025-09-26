@@ -2,9 +2,12 @@ name: Update clubs and fixtures (daily, Europe morning)
 
 on:
   schedule:
-    # 04:10 UTC ≈ 05:10/06:10 in Central Europe depending on DST
+    # 04:10 UTC ≈ early morning Central Europe (handles DST reasonably)
     - cron: "10 4 * * *"
   workflow_dispatch: {}
+
+permissions:
+  contents: write
 
 jobs:
   update:
@@ -22,15 +25,15 @@ jobs:
       - name: Install dependencies
         run: npm ci || npm i
 
-      # --- EuroClubIndex -> clubs.json (Puppeteer headless) ---
+      # --- EuroClubIndex -> clubs.json (Puppeteer) ---
       - name: Update top clubs from EuroClubIndex
         run: npm run update:clubs
 
-      # --- Your existing daily fixtures step (kept as-is) ---
+      # --- Your existing fixtures step (kept as-is) ---
       - name: Build today's fixtures
         run: npm run build:data
 
-      # Commit any changes (clubs.json / data files)
+      # Commit any changes (clubs.json / data/*)
       - name: Commit & push changes
         run: |
           git config user.name "github-actions[bot]"
