@@ -44,18 +44,30 @@ async function writeClubs(clubs) {
   console.log(`[clubs] clubs.json updated (${clubs.length})`);
 }
 
-async function autoScroll(page, ms = 6000) {
+async function autoScroll(page, ms = 8000) {
   const start = Date.now();
   let last = await page.evaluate(() => document.scrollingElement?.scrollHeight || document.body.scrollHeight);
   let scrollAttempts = 0;
   
-  while (Date.now() - start < ms && scrollAttempts < 20) {
-    await page.evaluate(() => window.scrollBy(0, 1000));
-    await sleep(200);
+  while (Date.now() - start < ms && scrollAttempts < 30) {
+    await page.evaluate(() => window.scrollBy(0, 800));
+    await sleep(300);
     scrollAttempts++;
     
     const cur = await page.evaluate(() => document.scrollingElement?.scrollHeight || document.body.scrollHeight);
-    if (cur === last) break;
+    if (cur === last) {
+      // Try clicking "Load more" or "Show more" buttons
+      await page.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll("button, a"))
+          .filter(b => /load more|show more|more|next|see all/i.test((b.textContent || "").trim()));
+        buttons.slice(0, 2).forEach(b => { 
+          try { 
+            if (b.click) b.click(); 
+          } catch {} 
+        });
+      }).catch(() => {});
+      await sleep(1000);
+    }
     last = cur;
   }
   
@@ -157,6 +169,67 @@ async function fetchTop25FromECI() {
         }).catch(() => {});
 
         await sleep(1500);
+
+        // Try to click "Load complete list" or "Load more" buttons
+        console.log("[clubs] Looking for load more buttons...");
+        const loadButtonClicked = await page.evaluate(() => {
+          // Look for the specific buttons shown in the screenshot
+          const loadCompleteBtn = Array.from(document.querySelectorAll("button, a, div"))
+            .find(b => /load complete list|load all|show all/i.test((b.textContent || "").trim()));
+          
+          if (loadCompleteBtn) {
+            console.log("Found 'Load complete list' button");
+            try {
+              loadCompleteBtn.click();
+              return "complete";
+            } catch (e) {
+              console.log("Failed to click complete button:", e.message);
+            }
+          }
+
+          // Fallback to "Load more" button
+          const loadMoreBtn = Array.from(document.querySelectorAll("button, a, div"))
+            .find(b => /load more.*\d+.*of.*\d+/i.test((b.textContent || "").trim()));
+          
+          if (loadMoreBtn) {
+            console.log("Found 'Load more' button:", loadMoreBtn.textContent);
+            try {
+              loadMoreBtn.click();
+              return "more";
+            } catch (e) {
+              console.log("Failed to click more button:", e.message);
+            }
+          }
+
+          return false;
+        });
+
+        if (loadButtonClicked) {
+          console.log(`[clubs] Clicked ${loadButtonClicked} button, waiting for content to load...`);
+          await sleep(5000); // Wait longer for all content to load
+          
+          // If we clicked "Load more", try multiple times to get all 25
+          if (loadButtonClicked === "more") {
+            for (let i = 0; i < 3; i++) {
+              await sleep(2000);
+              const moreClicked = await page.evaluate(() => {
+                const btn = Array.from(document.querySelectorAll("button, a, div"))
+                  .find(b => /load more.*\d+.*of.*\d+/i.test((b.textContent || "").trim()));
+                if (btn) {
+                  try {
+                    btn.click();
+                    return true;
+                  } catch {}
+                }
+                return false;
+              });
+              if (!moreClicked) break;
+              console.log(`[clubs] Clicked load more button ${i + 1} additional times`);
+            }
+            await sleep(3000);
+          }
+        }
+
         await autoScroll(page);
 
         // Method 1: Try DOM extraction first
@@ -167,8 +240,8 @@ async function fetchTop25FromECI() {
         const rawText = await page.evaluate(() => document.body.innerText || "");
         console.log(`[clubs] Page text length: ${rawText.length} chars`);
         
-        // Debug: log first 500 chars to see what we're getting
-        console.log(`[clubs] Sample text: "${rawText.substring(0, 500)}..."`);
+        // Debug: log first 1000 chars to see what we're getting
+        console.log(`[clubs] Sample text: "${rawText.substring(0, 1000)}..."`);
 
         // More flexible regex patterns
         const patterns = [
@@ -179,7 +252,9 @@ async function fetchTop25FromECI() {
           // Just "1 Real Madrid" 
           /^\s*(\d{1,3})\s+([A-Za-zÀ-ÖØ-öø-ÿ'.\-\s]{2,50})$/gm,
           // Handle cases like "- Real Madrid" or "1 - Real Madrid"
-          /^\s*(?:\d{1,3}\s*)?[-•]\s*([A-Za-zÀ-ÖØ-öø-ÿ'.\-\s]{2,50})$/gm
+          /^\s*(?:\d{1,3}\s*)?[-•]\s*([A-Za-zÀ-ÖØ-öø-ÿ'.\-\s]{2,50})$/gm,
+          // Try to match ranking lines more aggressively
+          /(\d{1,3})[\s.]+([A-Za-zÀ-ÖØ-öø-ÿ'.\-\s]{3,40})(?:\s*\([^)]*\))?/gm
         ];
 
         for (let i = 0; i < patterns.length; i++) {
@@ -199,16 +274,17 @@ async function fetchTop25FromECI() {
             // Clean up the name - remove leading/trailing hyphens and extra spaces
             name = name.replace(/^[-•\s]+|[-•\s]+$/g, '').replace(/\s+/g, " ").trim();
             
-            if (!name || (rank && rank > 100)) continue;
+            if (!name || (rank && rank > 50)) continue; // Allow ranks up to 50
             if (name.length < 3 || name.length > 50) continue;
             
             // filter obvious non-club words
-            if (/^(latest ranking|ranking|search|country|index|points?|position|rank|table|season|year|month|day|time)$/i.test(name)) continue;
+            if (/^(latest ranking|ranking|search|country|index|points?|position|rank|table|season|year|month|day|time|club|team|football|soccer)$/i.test(name)) continue;
             
             allPairs.push({ rank: rank || allPairs.length + 1, name, source: `text-pattern-${i}` });
           }
           
-          if (allPairs.length >= 50) break; // Collect more candidates
+          console.log(`[clubs] Pattern ${i} found ${allPairs.filter(p => p.source === `text-pattern-${i}`).length} matches`);
+          if (allPairs.length >= 100) break; // Collect even more candidates
         }
 
         console.log(`[clubs] Total pairs found so far: ${allPairs.length}`);
@@ -253,8 +329,8 @@ async function fetchTop25FromECI() {
     const top25 = await fetchTop25FromECI();
     console.log("[clubs] parsed:", top25.length, "clubs");
     
-    if (top25.length < 20) {
-      console.warn("[clubs] WARNING: fewer than 20 clubs parsed; keeping existing clubs.json");
+    if (top25.length < 8) {
+      console.warn("[clubs] WARNING: too few clubs parsed; keeping existing clubs.json");
       if (!current.length) {
         console.log("[clubs] Writing seed clubs as fallback");
         await writeClubs(SEED_25_CLUBS);
