@@ -44,16 +44,17 @@ async function writeClubs(clubs) {
   console.log(`[clubs] clubs.json updated (${clubs.length})`);
 }
 
-async function autoScroll(page, ms = 2500) {
+async function autoScroll(page, ms = 4000) {
   const start = Date.now();
-  let lastHeight = await page.evaluate(() => document.scrollingElement.scrollHeight);
+  let last = await page.evaluate(() => document.scrollingElement.scrollHeight);
   while (Date.now() - start < ms) {
-    await page.evaluate(() => window.scrollBy(0, 900));
-    await sleep(150); // <- use our own sleep
-    const newHeight = await page.evaluate(() => document.scrollingElement.scrollHeight);
-    if (newHeight === lastHeight) break;
-    lastHeight = newHeight;
+    await page.evaluate(() => window.scrollBy(0, 1000));
+    await sleep(120);
+    const cur = await page.evaluate(() => document.scrollingElement.scrollHeight);
+    if (cur === last) break;
+    last = cur;
   }
+  // back to top so ranks 1..25 are in view
   await page.evaluate(() => window.scrollTo(0, 0));
 }
 
@@ -72,98 +73,80 @@ async function fetchTop25FromECI() {
     );
     await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
 
-    let names = [];
+    let pairs = []; // {rank, name}
 
     for (const url of ECI_URLS) {
       try {
         console.log("[clubs] navigate:", url);
         await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
-        // Accept cookies if present
+        // Dismiss cookie/consent if present
         await page.evaluate(() => {
           const btns = Array.from(document.querySelectorAll("button, a"))
-            .filter(b => /accept|agree|ok|consent/i.test((b.textContent||"").trim()));
+            .filter(b => /accept|agree|ok|consent/i.test((b.textContent || "").trim()));
           btns.slice(0, 3).forEach(b => { try { b.click(); } catch {} });
         }).catch(() => {});
 
-        await sleep(800);
-        await autoScroll(page, 3000);
+        // Let it render & trigger lazy load
+        await sleep(1000);
+        await autoScroll(page, 4500);
 
-        // Strict row-based extractor
-        names = await page.evaluate(() => {
-          const BAD = /^(latest ranking|search|ranking|match odds|league odds|teams? comparison|methodology|disclaimer|contact|home|country|index|points?|position|rank)$/i;
+        // --- TEXT-BASED EXTRACTOR (markup-agnostic) ---
+        const rawText = await page.evaluate(() => document.body.innerText || "");
+        // Match lines like:
+        //  1  Real Madrid (Spain)  4224 (+12)
+        //  12 Newcastle United (England) 3545 (0)
+        const lineRe = /^\s*(\d{1,3})\s+([A-Za-zÀ-ÖØ-öø-ÿ'.\- ]+?)(?:\s*\([^)]+\))?\s+\d{3,5}\b.*$/gm;
 
-          const canon = s =>
-            (s || "")
-              .toLowerCase()
-              .replace(/\b(fc|cf|afc|sc)\b/g, "")
-              .replace(/[^a-z0-9]+/g, " ")
-              .trim();
+        const tmp = [];
+        let m;
+        while ((m = lineRe.exec(rawText)) !== null) {
+          const rank = Number(m[1]);
+          const name = m[2].replace(/\s+/g, " ").trim();
+          if (!rank || !name) continue;
+          // filter obvious non-club words
+          if (/^(latest ranking|ranking|search|country|index|points?|position|rank)$/i.test(name)) continue;
+          tmp.push({ rank, name });
+        }
 
-          const out = [];
-          const seen = new Set();
-
-          let scopes = [];
-          const heads = Array.from(document.querySelectorAll("h1,h2,h3"))
-            .filter(h => /latest\s+ranking/i.test(h.textContent || ""));
-          if (heads.length) {
-            let n = heads[0].parentElement;
-            if (n) scopes.push(n);
-            let sib = heads[0].nextElementSibling;
-            for (let i = 0; i < 4 && sib; i++, sib = sib.nextElementSibling) scopes.push(sib);
+        // If still too few, try a looser pattern (rank + name only)
+        if (tmp.length < 10) {
+          const looseRe = /^\s*(\d{1,3})\s+([A-Za-zÀ-ÖØ-öø-ÿ'.\- ]{2,60})$/gm;
+          let mm;
+          while ((mm = looseRe.exec(rawText)) !== null) {
+            const rank = Number(mm[1]);
+            const name = mm[2].replace(/\s+/g, " ").trim();
+            if (!rank || !name) continue;
+            if (/^(latest ranking|ranking|search|country|index|points?|position|rank)$/i.test(name)) continue;
+            tmp.push({ rank, name });
           }
-          if (scopes.length === 0) scopes = [document.body];
+        }
 
-          const takeFromRow = (row) => {
-            const raw = (row.textContent || "").replace(/\s+/g, " ").trim();
-            if (!/^\d+\b/.test(raw)) return; // must begin with numeric rank
+        // Deduplicate by rank & name, keep best 200 then sort
+        const seen = new Set();
+        for (const p of tmp) {
+          const key = `${p.rank}|${canon(p.name)}`;
+          if (!seen.has(key)) { pairs.push(p); seen.add(key); }
+        }
 
-            let name = "";
-            const a = row.querySelector('a[href*="/club/"]');
-            if (a) name = (a.textContent || "").replace(/\s+/g, " ").trim();
-
-            if (!name) {
-              let txt = raw.replace(/^\s*\d+\s*[-.]?\s*/, "").replace(/\s*\([^)]*\)\s*$/, "");
-              const m = txt.match(/^[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'.-]+(?: [A-Z][A-Za-zÀ-ÖØ-öø-ÿ'.-]+){0,3}/);
-              if (m) name = m[0];
-            }
-
-            if (!name || BAD.test(name)) return;
-            const key = canon(name);
-            if (!key || seen.has(key)) return;
-            seen.add(key);
-            out.push(name);
-          };
-
-          for (const scope of scopes) {
-            const rows = scope.querySelectorAll("tr, li, [role='row']");
-            for (const r of rows) {
-              try { takeFromRow(r); } catch {}
-              if (out.length >= 30) break;
-            }
-            if (out.length >= 25) break;
-          }
-          return out.slice(0, 25);
-        });
-
-        if (names.length >= 10) break;
-        console.log("[clubs] extractor returned too few; trying next URL…");
+        if (pairs.length >= 15) break; // we gathered enough; stop trying other URLs
       } catch (e) {
         console.warn("[clubs] navigate failed:", url, e.message);
       }
     }
 
-    // Final de-dup + cap
-    const dedup = [];
-    const seen = new Set();
-    for (const n of names) {
-      const k = canon(n);
-      if (!k || seen.has(k)) continue;
-      seen.add(k);
-      dedup.push(n);
-      if (dedup.length === 25) break;
+    // Sort by rank and take unique names in order
+    pairs.sort((a, b) => a.rank - b.rank);
+    const names = [];
+    const seenNames = new Set();
+    for (const { name } of pairs) {
+      const k = canon(name);
+      if (!k || seenNames.has(k)) continue;
+      seenNames.add(k);
+      names.push(name);
+      if (names.length === 25) break;
     }
-    return dedup;
+    return names;
   } finally {
     await browser.close();
   }
