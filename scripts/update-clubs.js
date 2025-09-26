@@ -18,14 +18,11 @@ const SEED_25_CLUBS = [
   "Feyenoord","Chelsea","Tottenham Hotspur","Roma","Sevilla"
 ];
 
-const canon = s =>
-  (s || "")
-    .toLowerCase()
-    .replace(/\b(fc|cf|afc|sc)\b/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+const canon = s => (s||"").toLowerCase()
+  .replace(/\b(fc|cf|afc|sc)\b/g,"")
+  .replace(/[^a-z0-9]+/g," ").trim();
 
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function readCurrent() {
   try {
@@ -46,266 +43,155 @@ async function writeClubs(clubs) {
 
 async function autoScroll(page, ms = 4000) {
   const start = Date.now();
-  let last = await page.evaluate(() => document.scrollingElement?.scrollHeight || document.body.scrollHeight);
-  let scrollAttempts = 0;
-  
-  while (Date.now() - start < ms && scrollAttempts < 15) {
-    await page.evaluate(() => window.scrollBy(0, 800));
-    await sleep(200);
-    scrollAttempts++;
-    
-    const cur = await page.evaluate(() => document.scrollingElement?.scrollHeight || document.body.scrollHeight);
+  let last = await page.evaluate(() =>
+    (document.scrollingElement?.scrollHeight || document.body.scrollHeight)
+  );
+  while (Date.now() - start < ms) {
+    await page.evaluate(() => window.scrollBy(0, 900));
+    await sleep(150);
+    const cur = await page.evaluate(() =>
+      (document.scrollingElement?.scrollHeight || document.body.scrollHeight)
+    );
     if (cur === last) break;
     last = cur;
   }
-  
-  // back to top so ranks 1..25 are in view
   await page.evaluate(() => window.scrollTo(0, 0));
-  await sleep(1000);
+  await sleep(600);
 }
 
-async function tryDOMExtraction(page) {
-  try {
-    // Try multiple DOM selectors for club rankings
-    const clubs = await page.evaluate(() => {
-      const results = [];
-      
-      // Method 1: Look for table rows or list items with ranking data
-      const selectors = [
-        'tr', 'li', '.ranking-row', '.club-row', '[data-rank]',
-        '.team', '.club', '.ranking-item'
+async function tryClickLoadMore(page, attempts = 3) {
+  for (let clickCount = 0; clickCount < attempts; clickCount++) {
+    const clicked = await page.evaluate((n) => {
+      const pick = (sel) => Array.from(document.querySelectorAll(sel));
+      const all = [
+        ...pick("button"),
+        ...pick("a"),
+        ...pick("div[role='button']")
       ];
-      
-      for (const selector of selectors) {
-        const elements = document.querySelectorAll(selector);
-        for (let i = 0; i < Math.min(elements.length, 50); i++) {
-          const el = elements[i];
-          const text = el.textContent || '';
-          
-          // Look for patterns like "1. Real Madrid" or "Real Madrid 1"
-          const rankMatch = text.match(/^\s*(\d{1,3})[.\s]+([A-Za-zÀ-ÖØ-öø-ÿ'.\-\s]{2,50})/);
-          if (rankMatch) {
-            const rank = parseInt(rankMatch[1]);
-            const name = rankMatch[2].replace(/\s*\([^)]+\).*$/, '').trim();
-            if (rank <= 100 && name.length > 1 && rank <= 30) { // Only keep ranks 1-30
-              results.push({ rank, name, source: 'dom-' + selector });
-            }
-          }
-        }
-        
-        if (results.length >= 15) break;
-      }
-      
-      return results.slice(0, 30);
-    });
-    
-    console.log(`[clubs] DOM extraction found ${clubs.length} potential clubs`);
-    return clubs;
-  } catch (e) {
-    console.log(`[clubs] DOM extraction failed: ${e.message}`);
-    return [];
+      const want = all.find(b => {
+        const t = (b.textContent || "").trim().toLowerCase();
+        return /load more|show more|show all|load all|complete list/.test(t);
+      });
+      if (want && typeof want.click === "function") { want.click(); return true; }
+      // also try elements with aria-label
+      const lab = all.find(b => {
+        const t = (b.getAttribute("aria-label") || "").toLowerCase();
+        return /load more|show more|show all|load all/.test(t);
+      });
+      if (lab && typeof lab.click === "function") { lab.click(); return true; }
+      return false;
+    }, clickCount);
+    if (!clicked) return false;
+    await sleep(1500); // wait for extra rows to render
   }
+  return true;
+}
+
+function uniqTop25(pairs) {
+  pairs.sort((a,b)=>a.rank-b.rank);
+  const out=[], seen=new Set();
+  for (const {name} of pairs) {
+    const k = canon(name);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(name.trim());
+    if (out.length === 25) break;
+  }
+  return out;
 }
 
 async function fetchTop25FromECI() {
   const browser = await puppeteer.launch({
     headless: "new",
-    args: [
-      "--no-sandbox", 
-      "--disable-setuid-sandbox",
-      "--disable-blink-features=AutomationControlled",
-      "--disable-web-security"
-    ],
+    args: ["--no-sandbox","--disable-setuid-sandbox"],
     defaultViewport: { width: 1366, height: 2200 }
   });
 
   try {
     const page = await browser.newPage();
-    
-    // Better stealth settings
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     );
-    await page.setExtraHTTPHeaders({ 
+    await page.setExtraHTTPHeaders({
       "Accept-Language": "en-US,en;q=0.9",
       "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
     });
 
-    let allPairs = []; // {rank, name, source}
-
     for (const url of ECI_URLS) {
       try {
         console.log("[clubs] navigate:", url);
-        await page.goto(url, { 
-          waitUntil: "domcontentloaded", 
-          timeout: 30000 
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
+        await sleep(1200);
+
+        // dismiss cookies if present
+        await page.evaluate(() => {
+          for (const el of document.querySelectorAll("button,a")) {
+            const t = (el.textContent||"").trim().toLowerCase();
+            if (/accept|agree|ok|consent/.test(t)) { try{ el.click(); }catch{} }
+          }
+        }).catch(()=>{});
+
+        // load more content
+        await tryClickLoadMore(page, 3);
+        await autoScroll(page, 3500);
+
+        // ===== 1) DOM-based extractor: rows that START with a rank =====
+        const domPairs = await page.evaluate(() => {
+          const pairs = [];
+          const seen = new Set();
+          const rows = document.querySelectorAll("tr, li, [role='row'], .ranking-row, .club-row");
+          const BAD = /^(latest ranking|ranking|search|country|index|points?|position|rank)$/i;
+
+          const grab = (row) => {
+            const text = (row.textContent||"").replace(/\s+/g," ").trim();
+            const m = text.match(/^\s*(\d{1,3})\s+([A-Za-zÀ-ÖØ-öø-ÿ'.\- ]{2,60})/);
+            if (!m) return;
+            const rank = Number(m[1]);
+            if (!rank || rank > 200) return;
+            // prefer anchor text if it links to /club/
+            const a = row.querySelector('a[href*="/club/"]');
+            const name = (a ? a.textContent : m[2]).replace(/\s*\([^)]*\)\s*$/,"").trim();
+            if (!name || BAD.test(name)) return;
+            const key = `${rank}|${name.toLowerCase()}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            pairs.push({ rank, name });
+          };
+
+          for (const r of rows) { try { grab(r); } catch {} }
+          return pairs;
         });
 
-        // Wait a bit for initial render
-        await sleep(2000);
-
-        // Dismiss cookie/consent if present
-        await page.evaluate(() => {
-          const btns = Array.from(document.querySelectorAll("button, a, div"))
-            .filter(b => /accept|agree|ok|consent|dismiss|close/i.test((b.textContent || "").trim()));
-          btns.slice(0, 5).forEach(b => { 
-            try { 
-              if (b.click) b.click(); 
-            } catch {} 
-          });
-        }).catch(() => {});
-
-        await sleep(1500);
-
-        // Click "Load more" button multiple times to get top 25 clubs
-        console.log("[clubs] Looking for load more buttons to get top 25...");
-        
-        // Click "Load more" button at least 2 times to get 30+ clubs displayed (10 initial + 10 + 10)
-        for (let clickCount = 0; clickCount < 3; clickCount++) {
-          const buttonClicked = await page.evaluate(() => {
-            // Look for "Load more" button first
-            const loadMoreBtn = Array.from(document.querySelectorAll("button, a, div"))
-              .find(b => /load more.*\d+.*of.*\d+/i.test((b.textContent || "").trim()));
-            
-            if (loadMoreBtn) {
-              console.log("Found 'Load more' button:", loadMoreBtn.textContent);
-              try {
-                loadMoreBtn.click();
-                return loadMoreBtn.textContent;
-              } catch (e) {
-                console.log("Failed to click load more button:", e.message);
-              }
-            }
-
-            // Fallback: look for "Load complete list" button
-            const loadCompleteBtn = Array.from(document.querySelectorAll("button, a, div"))
-              .find(b => /load complete list|load all|show all/i.test((b.textContent || "").trim()));
-            
-            if (loadCompleteBtn && clickCount === 0) { // Only try complete on first attempt
-              console.log("Found 'Load complete list' button");
-              try {
-                loadCompleteBtn.click();
-                return "load complete list";
-              } catch (e) {
-                console.log("Failed to click complete button:", e.message);
-              }
-            }
-
-            return false;
-          });
-
-          if (buttonClicked) {
-            console.log(`[clubs] Click ${clickCount + 1}: Clicked button (${buttonClicked}), waiting...`);
-            await sleep(3000); // Wait for content to load
-            
-            // If we clicked "Load complete list", we're done
-            if (buttonClicked.includes("complete")) {
-              console.log("[clubs] Loaded complete list, should have all clubs now");
-              break;
-            }
-          } else {
-            console.log(`[clubs] No more load buttons found after ${clickCount} clicks`);
-            break;
-          }
-          
-          // Short pause between clicks
-          await sleep(1000);
+        if (domPairs.length >= 15) {
+          const out = uniqTop25(domPairs);
+          if (out.length >= 10) return out;
         }
 
-        await autoScroll(page);
-
-        // Method 1: Try DOM extraction first - but focus on top rankings
-        const domClubs = await tryDOMExtraction(page);
-        // Filter DOM results to only top 30 ranks
-        const topDomClubs = domClubs.filter(club => club.rank <= 30);
-        allPairs.push(...topDomClubs);
-
-        // Method 2: Text-based extraction (your original method, but improved)
+        // ===== 2) Text-based fallback: lines that START with a rank =====
         const rawText = await page.evaluate(() => document.body.innerText || "");
-        console.log(`[clubs] Page text length: ${rawText.length} chars`);
-        
-        // Debug: log first 1000 chars to see what we're getting
-        console.log(`[clubs] Sample text: "${rawText.substring(0, 1000)}..."`);
+        const lineRe = /^\s*(\d{1,3})\s+([A-Za-zÀ-ÖØ-öø-ÿ'.\- ]{2,60})(?:\s*\([^)]+\))?(?:\s+\d{3,5}.*)?$/gm;
 
-        // More flexible regex patterns
-        const patterns = [
-          // "1  Real Madrid (Spain)  4224 (+12)"
-          /^\s*(\d{1,3})\s+([A-Za-zÀ-ÖØ-öø-ÿ'.\-\s]{2,50})(?:\s*\([^)]+\))?\s+\d{3,5}\b.*$/gm,
-          // "1. Real Madrid"
-          /^\s*(\d{1,3})[.\s]+([A-Za-zÀ-ÖØ-öø-ÿ'.\-\s]{2,50})$/gm,
-          // Just "1 Real Madrid" 
-          /^\s*(\d{1,3})\s+([A-Za-zÀ-ÖØ-öø-ÿ'.\-\s]{2,50})$/gm,
-          // Handle cases like "- Real Madrid" or "1 - Real Madrid"
-          /^\s*(?:\d{1,3}\s*)?[-•]\s*([A-Za-zÀ-ÖØ-öø-ÿ'.\-\s]{2,50})$/gm,
-          // Try to match ranking lines more aggressively
-          /(\d{1,3})[\s.]+([A-Za-zÀ-ÖØ-öø-ÿ'.\-\s]{3,40})(?:\s*\([^)]*\))?/gm
-        ];
-
-        for (let i = 0; i < patterns.length; i++) {
-          const pattern = patterns[i];
-          let m;
-          while ((m = pattern.exec(rawText)) !== null) {
-            let rank, name;
-            
-            if (i === 3) { // Special handling for "- Club Name" pattern
-              rank = 0; // We'll assign sequential ranks later
-              name = m[1];
-            } else {
-              rank = Number(m[1]);
-              name = m[2];
-            }
-            
-            // Clean up the name - remove leading/trailing hyphens and extra spaces
-            name = name.replace(/^[-•\s]+|[-•\s]+$/g, '').replace(/\s+/g, " ").trim();
-            
-            if (!name || (rank && rank > 30)) continue; // Only accept ranks 1-30 to focus on top clubs
-            if (name.length < 3 || name.length > 50) continue;
-            
-            // filter obvious non-club words
-            if (/^(latest ranking|ranking|search|country|index|points?|position|rank|table|season|year|month|day|time|club|team|football|soccer)$/i.test(name)) continue;
-            
-            allPairs.push({ rank: rank || allPairs.length + 1, name, source: `text-pattern-${i}` });
-          }
-          
-          console.log(`[clubs] Pattern ${i} found ${allPairs.filter(p => p.source === `text-pattern-${i}`).length} matches`);
-          if (allPairs.length >= 100) break; // Collect even more candidates
+        const tmp = [];
+        let m;
+        while ((m = lineRe.exec(rawText)) !== null) {
+          const rank = Number(m[1]);
+          const name = (m[2]||"").replace(/\s+/g," ").trim();
+          if (!rank || !name) continue;
+          if (/^(latest ranking|ranking|search|country|index|points?|position|rank)$/i.test(name)) continue;
+          tmp.push({ rank, name });
         }
 
-        console.log(`[clubs] Total pairs found so far: ${allPairs.length}`);
-        if (allPairs.length >= 30) break; // Collect more candidates before stopping
-        
+        const out = uniqTop25(tmp);
+        if (out.length >= 10) return out;
+
+        console.log("[clubs] extractor returned too few; trying next URL…");
       } catch (e) {
         console.warn("[clubs] navigate failed:", url, e.message);
       }
     }
 
-    if (allPairs.length === 0) {
-      console.error("[clubs] No clubs found at all - website might have changed structure");
-      return [];
-    }
-
-    // Sort by rank and take only the top 25 unique names
-    allPairs.sort((a, b) => a.rank - b.rank);
-    
-    console.log("[clubs] Sample of found clubs (first 15):", 
-      allPairs.slice(0, 15).map(p => `${p.rank}: ${p.name}`));
-    
-    const names = [];
-    const seenNames = new Set();
-    for (const { name, rank } of allPairs) {
-      const k = canon(name);
-      if (!k || seenNames.has(k)) continue;
-      if (rank > 25) break; // Stop after rank 25
-      seenNames.add(k);
-      names.push(name);
-      if (names.length === 25) break; // Stop after 25 clubs
-    }
-    
-    console.log(`[clubs] Final unique clubs: ${names.length}`);
-    console.log("[clubs] Top 25 clubs:", names.slice(0, 25));
-    return names;
-    
+    return [];
   } finally {
     await browser.close();
   }
@@ -316,30 +202,18 @@ async function fetchTop25FromECI() {
   try {
     const top25 = await fetchTop25FromECI();
     console.log("[clubs] parsed:", top25.length, "clubs");
-    
-    if (top25.length < 8) {
+    if (top25.length < 10) {
       console.warn("[clubs] WARNING: too few clubs parsed; keeping existing clubs.json");
-      if (!current.length) {
-        console.log("[clubs] Writing seed clubs as fallback");
-        await writeClubs(SEED_25_CLUBS);
-      }
+      if (!current.length) await writeClubs(SEED_25_CLUBS);
       process.exit(0);
     }
-    
     if (JSON.stringify(current) === JSON.stringify(top25)) {
       console.log("[clubs] no change (same Top 25)");
       process.exit(0);
     }
-    
     await writeClubs(top25);
-    
   } catch (e) {
     console.error("[clubs] ERROR:", e.message);
-    console.error(e.stack);
-    
-    if (!current.length) {
-      console.log("[clubs] Writing seed clubs due to error");
-      await writeClubs(SEED_25_CLUBS);
-    }
+    if (!current.length) await writeClubs(SEED_25_CLUBS);
   }
 })();
