@@ -42,6 +42,20 @@ async function writeClubs(clubs) {
   console.log(`[clubs] clubs.json updated (${clubs.length})`);
 }
 
+async function autoScroll(page, ms = 2000) {
+  // Gently scroll to trigger lazy rendering
+  const start = Date.now();
+  let lastHeight = await page.evaluate(() => document.scrollingElement.scrollHeight);
+  while (Date.now() - start < ms) {
+    await page.evaluate(() => window.scrollBy(0, 800));
+    await page.waitForTimeout(150);
+    const newHeight = await page.evaluate(() => document.scrollingElement.scrollHeight);
+    if (newHeight === lastHeight) break;
+    lastHeight = newHeight;
+  }
+  await page.evaluate(() => window.scrollTo(0, 0)); // back to top so ranks 1..25 are in view
+}
+
 async function fetchTop25FromECI() {
   const browser = await puppeteer.launch({
     headless: "new",
@@ -65,18 +79,20 @@ async function fetchTop25FromECI() {
         console.log("[clubs] navigate:", url);
         await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
-        // Close cookie/consent if present
+        // Dismiss cookie/consent if present
         await page.evaluate(() => {
           const btns = Array.from(document.querySelectorAll("button, a"))
             .filter(b => /accept|agree|ok|consent/i.test((b.textContent||"").trim()));
           btns.slice(0, 3).forEach(b => { try { b.click(); } catch {} });
         }).catch(() => {});
 
-        await sleep(1500);
+        // Give initial content time to render, then scroll to trigger lazy load
+        await sleep(800);
+        await autoScroll(page, 2500);
 
-        // ====== STRICT EXTRACTOR ======
-        const extracted = await page.evaluate(() => {
-          const BAD = /^(ranking|match odds|league odds|teams? comparison|methodology|disclaimer|contact|home|search|country|index|points?|position|rank)$/i;
+        // STRICT row-based extractor
+        names = await page.evaluate(() => {
+          const BAD = /^(latest ranking|search|ranking|match odds|league odds|teams? comparison|methodology|disclaimer|contact|home|country|index|points?|position|rank)$/i;
 
           const canon = s =>
             (s || "")
@@ -85,42 +101,34 @@ async function fetchTop25FromECI() {
               .replace(/[^a-z0-9]+/g, " ")
               .trim();
 
-          // Find a container under/near the "LATEST RANKING" heading if possible.
+          const out = [];
+          const seen = new Set();
+
+          // Choose likely containers near the ranking section
           let scopes = [];
           const heads = Array.from(document.querySelectorAll("h1,h2,h3"))
             .filter(h => /latest\s+ranking/i.test(h.textContent || ""));
           if (heads.length) {
-            let el = heads[0].nextElementSibling;
-            let hops = 0;
-            while (el && hops < 5) { scopes.push(el); el = el.nextElementSibling; hops++; }
+            let n = heads[0].parentElement;
+            if (n) scopes.push(n);
+            let sib = heads[0].nextElementSibling;
+            for (let i = 0; i < 4 && sib; i++, sib = sib.nextElementSibling) scopes.push(sib);
           }
           if (scopes.length === 0) scopes = [document.body];
 
-          const out = [];
-          const seen = new Set();
-
           const takeFromRow = (row) => {
-            const cells = row.querySelectorAll("td,th,span,div");
-            // must contain a numeric rank somewhere
-            let hasRank = false;
-            for (const c of cells) {
-              const t = (c.textContent || "").replace(/\s+/g, " ").trim();
-              if (/^\d+$/.test(t)) { hasRank = true; break; }
-            }
-            if (!hasRank) return;
+            const raw = (row.textContent || "").replace(/\s+/g, " ").trim();
+            if (!/^\d+\b/.test(raw)) return; // must start with rank (prevents header like "Latest RankingSearch")
 
-            // Prefer <a> that looks like a club link
+            // Prefer anchor text from club links
             let name = "";
-            const a = row.querySelector('a[href*="/club/"], a[href^="/club"], a[href*="club="]');
+            const a = row.querySelector('a[href*="/club/"]');
             if (a) name = (a.textContent || "").replace(/\s+/g, " ").trim();
 
-            // Fallback: derive from row text
+            // Fallback: strip rank, drop trailing country in parentheses
             if (!name) {
-              let txt = (row.textContent || "").replace(/\s+/g, " ").trim();
-              // drop leading rank and any trailing country in parentheses
-              txt = txt.replace(/^\s*\d+\s*[-.]?\s*/, "").replace(/\s*\([^)]*\)\s*$/, "");
-              // keep first 1–4 title-cased words
-              const m = txt.match(/[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'.-]+(?: [A-Z][A-Za-zÀ-ÖØ-öø-ÿ'.-]+){0,3}/);
+              let txt = raw.replace(/^\s*\d+\s*[-.]?\s*/, "").replace(/\s*\([^)]*\)\s*$/, "");
+              const m = txt.match(/^[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'.-]+(?: [A-Z][A-Za-zÀ-ÖØ-öø-ÿ'.-]+){0,3}/);
               if (m) name = m[0];
             }
 
@@ -132,28 +140,24 @@ async function fetchTop25FromECI() {
           };
 
           for (const scope of scopes) {
-            // tables, list rows, or generic div rows
-            const rows = scope.querySelectorAll("tr, li, [role='row'], div");
+            const rows = scope.querySelectorAll("tr, li, [role='row']");
             for (const r of rows) {
               try { takeFromRow(r); } catch {}
-              if (out.length >= 40) break;
+              if (out.length >= 30) break;
             }
             if (out.length >= 25) break;
           }
-
           return out.slice(0, 25);
         });
 
-        names = extracted;
-
-        if (names.length >= 10) break; // success on this URL, stop trying others
+        if (names.length >= 10) break;
         console.log("[clubs] extractor returned too few; trying next URL…");
       } catch (e) {
         console.warn("[clubs] navigate failed:", url, e.message);
       }
     }
 
-    // De-dupe once more and cap to 25
+    // Final de-dup + cap
     const dedup = [];
     const seen = new Set();
     for (const n of names) {
@@ -186,6 +190,6 @@ async function fetchTop25FromECI() {
     await writeClubs(top25);
   } catch (e) {
     console.error("[clubs] ERROR:", e.message);
-    if (!current.length) await writeClubs(SEED_25_CLUBS); // seed on first run
+    if (!current.length) await writeClubs(SEED_25_CLUBS);
   }
 })();
