@@ -44,30 +44,18 @@ async function writeClubs(clubs) {
   console.log(`[clubs] clubs.json updated (${clubs.length})`);
 }
 
-async function autoScroll(page, ms = 8000) {
+async function autoScroll(page, ms = 4000) {
   const start = Date.now();
   let last = await page.evaluate(() => document.scrollingElement?.scrollHeight || document.body.scrollHeight);
   let scrollAttempts = 0;
   
-  while (Date.now() - start < ms && scrollAttempts < 30) {
+  while (Date.now() - start < ms && scrollAttempts < 15) {
     await page.evaluate(() => window.scrollBy(0, 800));
-    await sleep(300);
+    await sleep(200);
     scrollAttempts++;
     
     const cur = await page.evaluate(() => document.scrollingElement?.scrollHeight || document.body.scrollHeight);
-    if (cur === last) {
-      // Try clicking "Load more" or "Show more" buttons
-      await page.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll("button, a"))
-          .filter(b => /load more|show more|more|next|see all/i.test((b.textContent || "").trim()));
-        buttons.slice(0, 2).forEach(b => { 
-          try { 
-            if (b.click) b.click(); 
-          } catch {} 
-        });
-      }).catch(() => {});
-      await sleep(1000);
-    }
+    if (cur === last) break;
     last = cur;
   }
   
@@ -99,7 +87,7 @@ async function tryDOMExtraction(page) {
           if (rankMatch) {
             const rank = parseInt(rankMatch[1]);
             const name = rankMatch[2].replace(/\s*\([^)]+\).*$/, '').trim();
-            if (rank <= 100 && name.length > 1) {
+            if (rank <= 100 && name.length > 1 && rank <= 30) { // Only keep ranks 1-30
               results.push({ rank, name, source: 'dom-' + selector });
             }
           }
@@ -232,9 +220,11 @@ async function fetchTop25FromECI() {
 
         await autoScroll(page);
 
-        // Method 1: Try DOM extraction first
+        // Method 1: Try DOM extraction first - but focus on top rankings
         const domClubs = await tryDOMExtraction(page);
-        allPairs.push(...domClubs);
+        // Filter DOM results to only top 30 ranks
+        const topDomClubs = domClubs.filter(club => club.rank <= 30);
+        allPairs.push(...topDomClubs);
 
         // Method 2: Text-based extraction (your original method, but improved)
         const rawText = await page.evaluate(() => document.body.innerText || "");
@@ -274,7 +264,7 @@ async function fetchTop25FromECI() {
             // Clean up the name - remove leading/trailing hyphens and extra spaces
             name = name.replace(/^[-•\s]+|[-•\s]+$/g, '').replace(/\s+/g, " ").trim();
             
-            if (!name || (rank && rank > 50)) continue; // Allow ranks up to 50
+            if (!name || (rank && rank > 30)) continue; // Only accept ranks 1-30 to focus on top clubs
             if (name.length < 3 || name.length > 50) continue;
             
             // filter obvious non-club words
@@ -300,19 +290,21 @@ async function fetchTop25FromECI() {
       return [];
     }
 
-    // Sort by rank and take unique names in order
+    // Sort by rank and take only the top 25 unique names
     allPairs.sort((a, b) => a.rank - b.rank);
     
-    console.log("[clubs] Sample of found clubs:", allPairs.slice(0, 10));
+    console.log("[clubs] Sample of found clubs (first 15):", 
+      allPairs.slice(0, 15).map(p => `${p.rank}: ${p.name}`));
     
     const names = [];
     const seenNames = new Set();
-    for (const { name, source } of allPairs) {
+    for (const { name, rank } of allPairs) {
       const k = canon(name);
       if (!k || seenNames.has(k)) continue;
+      if (rank > 25) break; // Stop after rank 25
       seenNames.add(k);
       names.push(name);
-      if (names.length === 25) break;
+      if (names.length === 25) break; // Stop after 25 clubs
     }
     
     console.log(`[clubs] Final unique clubs: ${names.length}`);
