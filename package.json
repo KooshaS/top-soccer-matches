@@ -3,8 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "update:clubs": "node scripts/update-clubs.js",
+    "update:clubs": "node scripts/update-clubs.mjs",
     "build:data": "node scripts/fetch-fixtures.js"
   },
-  "dependencies": {}
+  "dependencies": {
+    "puppeteer": "^22.10.0"
+  }
 }
