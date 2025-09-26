@@ -1,7 +1,3 @@
-// scripts/update-clubs.js
-// Scrape EuroClubIndex Top-25 with Puppeteer (runs in GitHub Actions).
-// Writes clubs.json; on failure keeps the existing file (and seeds on first run).
-
 import fs from "node:fs/promises";
 import path from "node:path";
 import puppeteer from "puppeteer";
@@ -22,10 +18,12 @@ const SEED_25_CLUBS = [
   "Feyenoord","Chelsea","Tottenham Hotspur","Roma","Sevilla"
 ];
 
-const canon = s => (s||"").toLowerCase()
-  .replace(/\b(fc|cf|afc|sc)\b/g,"")
-  .replace(/[^a-z0-9]+/g," ")
-  .trim();
+const canon = s =>
+  (s || "")
+    .toLowerCase()
+    .replace(/\b(fc|cf|afc|sc)\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 
 async function readCurrent() {
   try {
@@ -50,6 +48,7 @@ async function fetchTop25FromECI() {
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
     defaultViewport: { width: 1366, height: 2200 }
   });
+
   try {
     const page = await browser.newPage();
     await page.setUserAgent(
@@ -66,72 +65,105 @@ async function fetchTop25FromECI() {
         console.log("[clubs] navigate:", url);
         await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
-        // Try to dismiss cookie/consent banners
+        // Close cookie/consent if present
         await page.evaluate(() => {
           const btns = Array.from(document.querySelectorAll("button, a"))
             .filter(b => /accept|agree|ok|consent/i.test((b.textContent||"").trim()));
           btns.slice(0, 3).forEach(b => { try { b.click(); } catch {} });
         }).catch(() => {});
 
-        // Allow rankings to render
         await sleep(1500);
 
-        // Primary: links to /club/ in the ranking list
-        names = await page.$$eval('a[href*="/club/"]', as => {
-          const canon = s => (s||"").toLowerCase().replace(/\b(fc|cf|afc|sc)\b/g,"")
-            .replace(/[^a-z0-9]+/g," ").trim();
-          const out = [], seen = new Set();
-          for (const a of as) {
-            const n = (a.textContent||"").replace(/\s+/g," ").trim();
-            if (!n) continue;
-            if (/^(rank|position|points?|index|country|search)$/i.test(n)) continue;
-            const k = canon(n);
-            if (!k || seen.has(k)) continue;
-            seen.add(k);
-            out.push(n);
-            if (out.length === 25) break;
+        // ====== STRICT EXTRACTOR ======
+        const extracted = await page.evaluate(() => {
+          const BAD = /^(ranking|match odds|league odds|teams? comparison|methodology|disclaimer|contact|home|search|country|index|points?|position|rank)$/i;
+
+          const canon = s =>
+            (s || "")
+              .toLowerCase()
+              .replace(/\b(fc|cf|afc|sc)\b/g, "")
+              .replace(/[^a-z0-9]+/g, " ")
+              .trim();
+
+          // Find a container under/near the "LATEST RANKING" heading if possible.
+          let scopes = [];
+          const heads = Array.from(document.querySelectorAll("h1,h2,h3"))
+            .filter(h => /latest\s+ranking/i.test(h.textContent || ""));
+          if (heads.length) {
+            let el = heads[0].nextElementSibling;
+            let hops = 0;
+            while (el && hops < 5) { scopes.push(el); el = el.nextElementSibling; hops++; }
           }
-          return out;
+          if (scopes.length === 0) scopes = [document.body];
+
+          const out = [];
+          const seen = new Set();
+
+          const takeFromRow = (row) => {
+            const cells = row.querySelectorAll("td,th,span,div");
+            // must contain a numeric rank somewhere
+            let hasRank = false;
+            for (const c of cells) {
+              const t = (c.textContent || "").replace(/\s+/g, " ").trim();
+              if (/^\d+$/.test(t)) { hasRank = true; break; }
+            }
+            if (!hasRank) return;
+
+            // Prefer <a> that looks like a club link
+            let name = "";
+            const a = row.querySelector('a[href*="/club/"], a[href^="/club"], a[href*="club="]');
+            if (a) name = (a.textContent || "").replace(/\s+/g, " ").trim();
+
+            // Fallback: derive from row text
+            if (!name) {
+              let txt = (row.textContent || "").replace(/\s+/g, " ").trim();
+              // drop leading rank and any trailing country in parentheses
+              txt = txt.replace(/^\s*\d+\s*[-.]?\s*/, "").replace(/\s*\([^)]*\)\s*$/, "");
+              // keep first 1–4 title-cased words
+              const m = txt.match(/[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'.-]+(?: [A-Z][A-Za-zÀ-ÖØ-öø-ÿ'.-]+){0,3}/);
+              if (m) name = m[0];
+            }
+
+            if (!name || BAD.test(name)) return;
+            const key = canon(name);
+            if (!key || seen.has(key)) return;
+            seen.add(key);
+            out.push(name);
+          };
+
+          for (const scope of scopes) {
+            // tables, list rows, or generic div rows
+            const rows = scope.querySelectorAll("tr, li, [role='row'], div");
+            for (const r of rows) {
+              try { takeFromRow(r); } catch {}
+              if (out.length >= 40) break;
+            }
+            if (out.length >= 25) break;
+          }
+
+          return out.slice(0, 25);
         });
 
-        // Secondary: scan visible rows/text if the link query was sparse
-        if (names.length < 10) {
-          const extra = await page.evaluate(() => {
-            const canon = s => (s||"").toLowerCase().replace(/\b(fc|cf|afc|sc)\b/g,"")
-              .replace(/[^a-z0-9]+/g," ").trim();
-            const out = [], seen = new Set();
-            const rows = Array.from(document.querySelectorAll("tr, li, div"));
-            for (const el of rows) {
-              const txt = (el.textContent||"").replace(/\s+/g," ").trim();
-              if (!txt) continue;
-              const m = txt.match(/[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'.-]+(?: [A-Z][A-Za-zÀ-ÖØ-öø-ÿ'.-]+){0,3}/g) || [];
-              for (const cand of m) {
-                if (/^(Rank|Position|Country|Points?|Index|Search)$/i.test(cand)) continue;
-                const k = canon(cand);
-                if (!k || seen.has(k)) continue;
-                seen.add(k);
-                out.push(cand);
-                if (out.length === 25) break;
-              }
-              if (out.length === 25) break;
-            }
-            return out;
-          });
-          const set = new Set(names.map(n => n.toLowerCase()));
-          for (const n of extra) {
-            const k = n.toLowerCase();
-            if (!set.has(k)) { names.push(n); set.add(k); }
-            if (names.length === 25) break;
-          }
-        }
+        names = extracted;
 
-        if (names.length >= 10) break; // success on this URL
+        if (names.length >= 10) break; // success on this URL, stop trying others
+        console.log("[clubs] extractor returned too few; trying next URL…");
       } catch (e) {
         console.warn("[clubs] navigate failed:", url, e.message);
       }
     }
 
-    return names.slice(0, 25);
+    // De-dupe once more and cap to 25
+    const dedup = [];
+    const seen = new Set();
+    for (const n of names) {
+      const k = canon(n);
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      dedup.push(n);
+      if (dedup.length === 25) break;
+    }
+    return dedup;
   } finally {
     await browser.close();
   }
