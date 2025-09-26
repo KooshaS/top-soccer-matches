@@ -25,6 +25,8 @@ const canon = s =>
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
 async function readCurrent() {
   try {
     const raw = await fs.readFile(CLUBS_PATH, "utf8");
@@ -42,18 +44,17 @@ async function writeClubs(clubs) {
   console.log(`[clubs] clubs.json updated (${clubs.length})`);
 }
 
-async function autoScroll(page, ms = 2000) {
-  // Gently scroll to trigger lazy rendering
+async function autoScroll(page, ms = 2500) {
   const start = Date.now();
   let lastHeight = await page.evaluate(() => document.scrollingElement.scrollHeight);
   while (Date.now() - start < ms) {
-    await page.evaluate(() => window.scrollBy(0, 800));
-    await page.waitForTimeout(150);
+    await page.evaluate(() => window.scrollBy(0, 900));
+    await sleep(150); // <- use our own sleep
     const newHeight = await page.evaluate(() => document.scrollingElement.scrollHeight);
     if (newHeight === lastHeight) break;
     lastHeight = newHeight;
   }
-  await page.evaluate(() => window.scrollTo(0, 0)); // back to top so ranks 1..25 are in view
+  await page.evaluate(() => window.scrollTo(0, 0));
 }
 
 async function fetchTop25FromECI() {
@@ -71,7 +72,6 @@ async function fetchTop25FromECI() {
     );
     await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
 
-    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     let names = [];
 
     for (const url of ECI_URLS) {
@@ -79,18 +79,17 @@ async function fetchTop25FromECI() {
         console.log("[clubs] navigate:", url);
         await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
-        // Dismiss cookie/consent if present
+        // Accept cookies if present
         await page.evaluate(() => {
           const btns = Array.from(document.querySelectorAll("button, a"))
             .filter(b => /accept|agree|ok|consent/i.test((b.textContent||"").trim()));
           btns.slice(0, 3).forEach(b => { try { b.click(); } catch {} });
         }).catch(() => {});
 
-        // Give initial content time to render, then scroll to trigger lazy load
         await sleep(800);
-        await autoScroll(page, 2500);
+        await autoScroll(page, 3000);
 
-        // STRICT row-based extractor
+        // Strict row-based extractor
         names = await page.evaluate(() => {
           const BAD = /^(latest ranking|search|ranking|match odds|league odds|teams? comparison|methodology|disclaimer|contact|home|country|index|points?|position|rank)$/i;
 
@@ -104,7 +103,6 @@ async function fetchTop25FromECI() {
           const out = [];
           const seen = new Set();
 
-          // Choose likely containers near the ranking section
           let scopes = [];
           const heads = Array.from(document.querySelectorAll("h1,h2,h3"))
             .filter(h => /latest\s+ranking/i.test(h.textContent || ""));
@@ -118,14 +116,12 @@ async function fetchTop25FromECI() {
 
           const takeFromRow = (row) => {
             const raw = (row.textContent || "").replace(/\s+/g, " ").trim();
-            if (!/^\d+\b/.test(raw)) return; // must start with rank (prevents header like "Latest RankingSearch")
+            if (!/^\d+\b/.test(raw)) return; // must begin with numeric rank
 
-            // Prefer anchor text from club links
             let name = "";
             const a = row.querySelector('a[href*="/club/"]');
             if (a) name = (a.textContent || "").replace(/\s+/g, " ").trim();
 
-            // Fallback: strip rank, drop trailing country in parentheses
             if (!name) {
               let txt = raw.replace(/^\s*\d+\s*[-.]?\s*/, "").replace(/\s*\([^)]*\)\s*$/, "");
               const m = txt.match(/^[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'.-]+(?: [A-Z][A-Za-zÀ-ÖØ-öø-ÿ'.-]+){0,3}/);
