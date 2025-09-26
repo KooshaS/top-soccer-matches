@@ -177,29 +177,42 @@ async function fetchTop25FromECI() {
           // "1. Real Madrid"
           /^\s*(\d{1,3})[.\s]+([A-Za-zÀ-ÖØ-öø-ÿ'.\-\s]{2,50})$/gm,
           // Just "1 Real Madrid" 
-          /^\s*(\d{1,3})\s+([A-Za-zÀ-ÖØ-öø-ÿ'.\-\s]{2,50})$/gm
+          /^\s*(\d{1,3})\s+([A-Za-zÀ-ÖØ-öø-ÿ'.\-\s]{2,50})$/gm,
+          // Handle cases like "- Real Madrid" or "1 - Real Madrid"
+          /^\s*(?:\d{1,3}\s*)?[-•]\s*([A-Za-zÀ-ÖØ-öø-ÿ'.\-\s]{2,50})$/gm
         ];
 
         for (let i = 0; i < patterns.length; i++) {
           const pattern = patterns[i];
           let m;
           while ((m = pattern.exec(rawText)) !== null) {
-            const rank = Number(m[1]);
-            const name = m[2].replace(/\s+/g, " ").trim();
-            if (!rank || !name || rank > 100) continue;
+            let rank, name;
+            
+            if (i === 3) { // Special handling for "- Club Name" pattern
+              rank = 0; // We'll assign sequential ranks later
+              name = m[1];
+            } else {
+              rank = Number(m[1]);
+              name = m[2];
+            }
+            
+            // Clean up the name - remove leading/trailing hyphens and extra spaces
+            name = name.replace(/^[-•\s]+|[-•\s]+$/g, '').replace(/\s+/g, " ").trim();
+            
+            if (!name || (rank && rank > 100)) continue;
+            if (name.length < 3 || name.length > 50) continue;
             
             // filter obvious non-club words
             if (/^(latest ranking|ranking|search|country|index|points?|position|rank|table|season|year|month|day|time)$/i.test(name)) continue;
-            if (name.length < 3 || name.length > 50) continue;
             
-            allPairs.push({ rank, name, source: `text-pattern-${i}` });
+            allPairs.push({ rank: rank || allPairs.length + 1, name, source: `text-pattern-${i}` });
           }
           
-          if (allPairs.length >= 20) break; // Stop if we have enough
+          if (allPairs.length >= 50) break; // Collect more candidates
         }
 
         console.log(`[clubs] Total pairs found so far: ${allPairs.length}`);
-        if (allPairs.length >= 15) break; // we gathered enough; stop trying other URLs
+        if (allPairs.length >= 30) break; // Collect more candidates before stopping
         
       } catch (e) {
         console.warn("[clubs] navigate failed:", url, e.message);
@@ -240,8 +253,8 @@ async function fetchTop25FromECI() {
     const top25 = await fetchTop25FromECI();
     console.log("[clubs] parsed:", top25.length, "clubs");
     
-    if (top25.length < 10) {
-      console.warn("[clubs] WARNING: too few clubs parsed; keeping existing clubs.json");
+    if (top25.length < 20) {
+      console.warn("[clubs] WARNING: fewer than 20 clubs parsed; keeping existing clubs.json");
       if (!current.length) {
         console.log("[clubs] Writing seed clubs as fallback");
         await writeClubs(SEED_25_CLUBS);
