@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "update:clubs": "node scripts/update-clubs.mjs",
+    "update:clubs": "node scripts/update-clubs.js",
     "build:data": "node scripts/fetch-fixtures.js"
   },
   "dependencies": {
