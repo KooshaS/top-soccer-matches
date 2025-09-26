@@ -1,6 +1,6 @@
-// Update clubs.json using EuroClubIndex (HTTPS) via headless Chromium in GitHub Actions.
-// - Runs Puppeteer, renders the page, extracts Top-25 club names, writes clubs.json.
-// - If parsing fails, keeps your current clubs.json (and seeds if none exists).
+// scripts/update-clubs.js
+// Scrape EuroClubIndex Top-25 with Puppeteer (runs in GitHub Actions).
+// Writes clubs.json; on failure keeps the existing file (and seeds on first run).
 
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -22,12 +22,10 @@ const SEED_25_CLUBS = [
   "Feyenoord","Chelsea","Tottenham Hotspur","Roma","Sevilla"
 ];
 
-const canon = s =>
-  (s || "")
-    .toLowerCase()
-    .replace(/\b(fc|cf|afc|sc)\b/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+const canon = s => (s||"").toLowerCase()
+  .replace(/\b(fc|cf|afc|sc)\b/g,"")
+  .replace(/[^a-z0-9]+/g," ")
+  .trim();
 
 async function readCurrent() {
   try {
@@ -43,7 +41,7 @@ async function readCurrent() {
 
 async function writeClubs(clubs) {
   await fs.writeFile(CLUBS_PATH, JSON.stringify({ clubs }, null, 2));
-  console.log(`[clubs] clubs.json updated (${clubs.length} clubs)`);
+  console.log(`[clubs] clubs.json updated (${clubs.length})`);
 }
 
 async function fetchTop25FromECI() {
@@ -68,23 +66,23 @@ async function fetchTop25FromECI() {
         console.log("[clubs] navigate:", url);
         await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
-        // Dismiss cookie/consent banners if present
+        // Try to dismiss cookie/consent banners
         await page.evaluate(() => {
           const btns = Array.from(document.querySelectorAll("button, a"))
-            .filter(b => /accept|agree|ok|consent/i.test((b.textContent || "").trim()));
+            .filter(b => /accept|agree|ok|consent/i.test((b.textContent||"").trim()));
           btns.slice(0, 3).forEach(b => { try { b.click(); } catch {} });
         }).catch(() => {});
 
-        // Give the page a moment to render the ranking list
+        // Allow rankings to render
         await sleep(1500);
 
-        // Primary extraction: /club/ links in the main ranking area
+        // Primary: links to /club/ in the ranking list
         names = await page.$$eval('a[href*="/club/"]', as => {
           const canon = s => (s||"").toLowerCase().replace(/\b(fc|cf|afc|sc)\b/g,"")
             .replace(/[^a-z0-9]+/g," ").trim();
           const out = [], seen = new Set();
           for (const a of as) {
-            const n = (a.textContent || "").replace(/\s+/g," ").trim();
+            const n = (a.textContent||"").replace(/\s+/g," ").trim();
             if (!n) continue;
             if (/^(rank|position|points?|index|country|search)$/i.test(n)) continue;
             const k = canon(n);
@@ -96,7 +94,7 @@ async function fetchTop25FromECI() {
           return out;
         });
 
-        // Secondary fallback: scan visible rows/text if link query was too sparse
+        // Secondary: scan visible rows/text if the link query was sparse
         if (names.length < 10) {
           const extra = await page.evaluate(() => {
             const canon = s => (s||"").toLowerCase().replace(/\b(fc|cf|afc|sc)\b/g,"")
@@ -104,7 +102,7 @@ async function fetchTop25FromECI() {
             const out = [], seen = new Set();
             const rows = Array.from(document.querySelectorAll("tr, li, div"));
             for (const el of rows) {
-              const txt = (el.textContent || "").replace(/\s+/g," ").trim();
+              const txt = (el.textContent||"").replace(/\s+/g," ").trim();
               if (!txt) continue;
               const m = txt.match(/[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'.-]+(?: [A-Z][A-Za-zÀ-ÖØ-öø-ÿ'.-]+){0,3}/g) || [];
               for (const cand of m) {
@@ -157,6 +155,5 @@ async function fetchTop25FromECI() {
   } catch (e) {
     console.error("[clubs] ERROR:", e.message);
     if (!current.length) await writeClubs(SEED_25_CLUBS); // seed on first run
-    process.exit(0);
   }
 })();
