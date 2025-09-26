@@ -158,64 +158,59 @@ async function fetchTop25FromECI() {
 
         await sleep(1500);
 
-        // Try to click "Load complete list" or "Load more" buttons
-        console.log("[clubs] Looking for load more buttons...");
-        const loadButtonClicked = await page.evaluate(() => {
-          // Look for the specific buttons shown in the screenshot
-          const loadCompleteBtn = Array.from(document.querySelectorAll("button, a, div"))
-            .find(b => /load complete list|load all|show all/i.test((b.textContent || "").trim()));
-          
-          if (loadCompleteBtn) {
-            console.log("Found 'Load complete list' button");
-            try {
-              loadCompleteBtn.click();
-              return "complete";
-            } catch (e) {
-              console.log("Failed to click complete button:", e.message);
+        // Click "Load more" button multiple times to get top 25 clubs
+        console.log("[clubs] Looking for load more buttons to get top 25...");
+        
+        // Click "Load more" button at least 2 times to get 30+ clubs displayed (10 initial + 10 + 10)
+        for (let clickCount = 0; clickCount < 3; clickCount++) {
+          const buttonClicked = await page.evaluate(() => {
+            // Look for "Load more" button first
+            const loadMoreBtn = Array.from(document.querySelectorAll("button, a, div"))
+              .find(b => /load more.*\d+.*of.*\d+/i.test((b.textContent || "").trim()));
+            
+            if (loadMoreBtn) {
+              console.log("Found 'Load more' button:", loadMoreBtn.textContent);
+              try {
+                loadMoreBtn.click();
+                return loadMoreBtn.textContent;
+              } catch (e) {
+                console.log("Failed to click load more button:", e.message);
+              }
             }
-          }
 
-          // Fallback to "Load more" button
-          const loadMoreBtn = Array.from(document.querySelectorAll("button, a, div"))
-            .find(b => /load more.*\d+.*of.*\d+/i.test((b.textContent || "").trim()));
-          
-          if (loadMoreBtn) {
-            console.log("Found 'Load more' button:", loadMoreBtn.textContent);
-            try {
-              loadMoreBtn.click();
-              return "more";
-            } catch (e) {
-              console.log("Failed to click more button:", e.message);
+            // Fallback: look for "Load complete list" button
+            const loadCompleteBtn = Array.from(document.querySelectorAll("button, a, div"))
+              .find(b => /load complete list|load all|show all/i.test((b.textContent || "").trim()));
+            
+            if (loadCompleteBtn && clickCount === 0) { // Only try complete on first attempt
+              console.log("Found 'Load complete list' button");
+              try {
+                loadCompleteBtn.click();
+                return "load complete list";
+              } catch (e) {
+                console.log("Failed to click complete button:", e.message);
+              }
             }
-          }
 
-          return false;
-        });
+            return false;
+          });
 
-        if (loadButtonClicked) {
-          console.log(`[clubs] Clicked ${loadButtonClicked} button, waiting for content to load...`);
-          await sleep(5000); // Wait longer for all content to load
-          
-          // If we clicked "Load more", try multiple times to get all 25
-          if (loadButtonClicked === "more") {
-            for (let i = 0; i < 3; i++) {
-              await sleep(2000);
-              const moreClicked = await page.evaluate(() => {
-                const btn = Array.from(document.querySelectorAll("button, a, div"))
-                  .find(b => /load more.*\d+.*of.*\d+/i.test((b.textContent || "").trim()));
-                if (btn) {
-                  try {
-                    btn.click();
-                    return true;
-                  } catch {}
-                }
-                return false;
-              });
-              if (!moreClicked) break;
-              console.log(`[clubs] Clicked load more button ${i + 1} additional times`);
+          if (buttonClicked) {
+            console.log(`[clubs] Click ${clickCount + 1}: Clicked button (${buttonClicked}), waiting...`);
+            await sleep(3000); // Wait for content to load
+            
+            // If we clicked "Load complete list", we're done
+            if (buttonClicked.includes("complete")) {
+              console.log("[clubs] Loaded complete list, should have all clubs now");
+              break;
             }
-            await sleep(3000);
+          } else {
+            console.log(`[clubs] No more load buttons found after ${clickCount} clicks`);
+            break;
           }
+          
+          // Short pause between clicks
+          await sleep(1000);
         }
 
         await autoScroll(page);
@@ -308,6 +303,7 @@ async function fetchTop25FromECI() {
     }
     
     console.log(`[clubs] Final unique clubs: ${names.length}`);
+    console.log("[clubs] Top 25 clubs:", names.slice(0, 25));
     return names;
     
   } finally {
