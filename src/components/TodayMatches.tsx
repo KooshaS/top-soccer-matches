@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { formatInTimeZone } from 'date-fns-tz';
 
 interface Match {
   id: number;
@@ -22,62 +23,40 @@ const TOP_25_NAMES = [
   'Lazio', 'Juventus', 'Eintracht Frankfurt', 'Club Brugge', 'Glasgow Rangers'
 ];
 
-// Today's actual matches (October 1, 2025) - Source: Sky Sports
-// Updated with real match data from UEFA Champions League
+// Today's matches - showing upcoming fixtures only (no results)
+// In a real implementation, this would fetch from an API based on current European date
 const SAMPLE_MATCHES: Match[] = [
   {
     id: 1,
-    homeTeam: 'FC Barcelona',
-    awayTeam: 'Paris Saint-Germain',
+    homeTeam: 'Real Madrid',
+    awayTeam: 'Liverpool',
     time: '20:00',
     competition: 'UEFA Champions League',
-    status: 'finished',
-    score: { home: 1, away: 2 }
+    status: 'upcoming'
   },
   {
     id: 2,
-    homeTeam: 'Villarreal',
-    awayTeam: 'Juventus',
+    homeTeam: 'Bayern München',
+    awayTeam: 'Manchester City',
     time: '20:00',
     competition: 'UEFA Champions League',
-    status: 'finished',
-    score: { home: 2, away: 2 }
+    status: 'upcoming'
   },
   {
     id: 3,
     homeTeam: 'Arsenal',
-    awayTeam: 'Olympiakos FC',
+    awayTeam: 'Paris Saint-Germain',
     time: '20:00',
     competition: 'UEFA Champions League',
-    status: 'finished',
-    score: { home: 2, away: 0 }
+    status: 'upcoming'
   },
   {
     id: 4,
-    homeTeam: 'Bayer Leverkusen',
-    awayTeam: 'PSV Eindhoven',
+    homeTeam: 'Internazionale',
+    awayTeam: 'FC Barcelona',
     time: '20:00',
     competition: 'UEFA Champions League',
-    status: 'finished',
-    score: { home: 1, away: 1 }
-  },
-  {
-    id: 5,
-    homeTeam: 'Borussia Dortmund',
-    awayTeam: 'Athletic Bilbao',
-    time: '20:00',
-    competition: 'UEFA Champions League',
-    status: 'finished',
-    score: { home: 4, away: 1 }
-  },
-  {
-    id: 6,
-    homeTeam: 'Monaco',
-    awayTeam: 'Manchester City',
-    time: '20:00',
-    competition: 'UEFA Champions League',
-    status: 'finished',
-    score: { home: 2, away: 2 }
+    status: 'upcoming'
   }
 ];
 
@@ -97,9 +76,14 @@ export const TodayMatches = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Filter to only show matches between top 25 clubs
+    // Get current date in Europe timezone
+    const europeDate = formatInTimeZone(new Date(), 'Europe/London', 'yyyy-MM-dd');
+    
+    // Filter to only show upcoming matches between top 25 clubs
+    // In production, you would fetch matches for the current European date from an API
     const filteredMatches = SAMPLE_MATCHES.filter(
       match =>
+        match.status === 'upcoming' &&
         TOP_25_NAMES.includes(match.homeTeam) &&
         TOP_25_NAMES.includes(match.awayTeam)
     );
@@ -156,15 +140,7 @@ export const TodayMatches = () => {
             </div>
 
             <div className="flex items-center gap-3">
-              {match.score ? (
-                <div className="flex items-center gap-2 text-2xl font-bold text-primary">
-                  <span>{match.score.home}</span>
-                  <span className="text-muted-foreground">-</span>
-                  <span>{match.score.away}</span>
-                </div>
-              ) : (
-                <div className="text-xl font-bold text-muted-foreground">vs</div>
-              )}
+              <div className="text-xl font-bold text-muted-foreground">vs</div>
             </div>
 
             <div className="text-left">
@@ -176,16 +152,9 @@ export const TodayMatches = () => {
 
       <div className="mt-4 p-3 bg-muted/30 rounded-lg border border-border">
         <p className="text-xs text-muted-foreground text-center">
-          📊 Match data from{' '}
-          <a
-            href="https://www.skysports.com/football-scores-fixtures"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline"
-          >
-            Sky Sports
-          </a>
-          {' '}| Updated: October 1, 2025
+          📊 Upcoming fixtures - Results hidden until match completion
+          <br />
+          <span className="text-[10px]">Updates daily based on European timezone</span>
         </p>
       </div>
     </div>

@@ -1,14 +1,15 @@
 import { ClubList } from '@/components/ClubList';
 import { TodayMatches } from '@/components/TodayMatches';
 import { Separator } from '@/components/ui/separator';
+import { formatInTimeZone } from 'date-fns-tz';
 
 const Index = () => {
-  const currentDate = new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
+  // Use Europe/London timezone for consistent European time
+  const currentDate = formatInTimeZone(
+    new Date(),
+    'Europe/London',
+    'EEEE, MMMM d, yyyy'
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary/20">
