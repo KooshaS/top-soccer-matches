@@ -10,7 +10,7 @@ const queryClient = new QueryClient();
 
 const App = () => {
   // Use basename only in production (GitHub Pages)
-  const basename = import.meta.env.PROD ? "/top-soccer-matches" : "/";
+  const basename = import.meta.env.PROD ? "/top-soccer-matches/" : "/";
   
   return (
     <QueryClientProvider client={queryClient}>
