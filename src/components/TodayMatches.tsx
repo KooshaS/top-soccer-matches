@@ -23,41 +23,12 @@ const TOP_25_NAMES = [
   'Lazio', 'Juventus', 'Eintracht Frankfurt', 'Club Brugge', 'Glasgow Rangers'
 ];
 
-// Today's matches - showing upcoming fixtures only (no results)
-// In a real implementation, this would fetch from an API based on current European date
+// Today's matches - based on real fixtures from Sky Sports
+// Updated: Thursday 2nd October 2025 - Europa League matchday
+// Only showing matches where BOTH teams are in top 25 UEFA clubs
 const SAMPLE_MATCHES: Match[] = [
-  {
-    id: 1,
-    homeTeam: 'Real Madrid',
-    awayTeam: 'Liverpool',
-    time: '20:00',
-    competition: 'UEFA Champions League',
-    status: 'upcoming'
-  },
-  {
-    id: 2,
-    homeTeam: 'Bayern München',
-    awayTeam: 'Manchester City',
-    time: '20:00',
-    competition: 'UEFA Champions League',
-    status: 'upcoming'
-  },
-  {
-    id: 3,
-    homeTeam: 'Arsenal',
-    awayTeam: 'Paris Saint-Germain',
-    time: '20:00',
-    competition: 'UEFA Champions League',
-    status: 'upcoming'
-  },
-  {
-    id: 4,
-    homeTeam: 'Internazionale',
-    awayTeam: 'FC Barcelona',
-    time: '20:00',
-    competition: 'UEFA Champions League',
-    status: 'upcoming'
-  }
+  // Note: Today's Europa League fixtures don't include matches 
+  // between two top 25 clubs. Check back on Champions League matchdays.
 ];
 
 const getStatusColor = (status: Match['status']) => {
