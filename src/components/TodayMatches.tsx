@@ -24,11 +24,40 @@ const TOP_25_NAMES = [
 ];
 
 // Today's matches - based on real fixtures from Sky Sports
-// Updated: Thursday 2nd October 2025 - Europa League matchday
-// Only showing matches where BOTH teams are in top 25 UEFA clubs
+// Updated: Saturday 4th October 2025 - Premier League matchday
 const SAMPLE_MATCHES: Match[] = [
-  // Note: Today's Europa League fixtures don't include matches 
-  // between two top 25 clubs. Check back on Champions League matchdays.
+  {
+    id: 1,
+    homeTeam: 'Leeds United',
+    awayTeam: 'Tottenham Hotspur',
+    time: '12:30',
+    competition: 'Premier League',
+    status: 'upcoming'
+  },
+  {
+    id: 2,
+    homeTeam: 'Arsenal',
+    awayTeam: 'West Ham United',
+    time: '15:00',
+    competition: 'Premier League',
+    status: 'upcoming'
+  },
+  {
+    id: 3,
+    homeTeam: 'Manchester United',
+    awayTeam: 'Sunderland',
+    time: '15:00',
+    competition: 'Premier League',
+    status: 'upcoming'
+  },
+  {
+    id: 4,
+    homeTeam: 'Chelsea',
+    awayTeam: 'Liverpool',
+    time: '17:30',
+    competition: 'Premier League',
+    status: 'upcoming'
+  }
 ];
 
 const getStatusColor = (status: Match['status']) => {
@@ -50,13 +79,10 @@ export const TodayMatches = () => {
     // Get current date in Europe timezone
     const europeDate = formatInTimeZone(new Date(), 'Europe/London', 'yyyy-MM-dd');
     
-    // Filter to only show upcoming matches between top 25 clubs
+    // Show all Premier League matches for today
     // In production, you would fetch matches for the current European date from an API
     const filteredMatches = SAMPLE_MATCHES.filter(
-      match =>
-        match.status === 'upcoming' &&
-        TOP_25_NAMES.includes(match.homeTeam) &&
-        TOP_25_NAMES.includes(match.awayTeam)
+      match => match.status === 'upcoming'
     );
 
     // Simulate loading
@@ -82,7 +108,7 @@ export const TodayMatches = () => {
     return (
       <Card className="p-8 text-center border-muted">
         <p className="text-muted-foreground">
-          No matches scheduled today between top 25 clubs
+          No matches scheduled today
         </p>
       </Card>
     );
@@ -123,9 +149,9 @@ export const TodayMatches = () => {
 
       <div className="mt-4 p-3 bg-muted/30 rounded-lg border border-border">
         <p className="text-xs text-muted-foreground text-center">
-          📊 Upcoming fixtures - Results hidden until match completion
+          ⚽ Premier League fixtures - Saturday 4th October 2025
           <br />
-          <span className="text-[10px]">Updates daily based on European timezone</span>
+          <span className="text-[10px]">Times in BST (British Summer Time)</span>
         </p>
       </div>
     </div>
