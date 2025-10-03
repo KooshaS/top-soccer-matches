@@ -24,15 +24,23 @@ const TOP_25_NAMES = [
 ];
 
 // Today's matches - based on real fixtures from Sky Sports
-// Updated: Saturday 4th October 2025 - Premier League matchday
+// Updated: Saturday 4th October 2025 - Premier League & La Liga matchday
 // Only showing matches where BOTH teams are in top 25 UEFA clubs
 const SAMPLE_MATCHES: Match[] = [
   {
-    id: 4,
+    id: 1,
     homeTeam: 'Chelsea',
     awayTeam: 'Liverpool',
     time: '17:30',
     competition: 'Premier League',
+    status: 'upcoming'
+  },
+  {
+    id: 2,
+    homeTeam: 'Real Madrid',
+    awayTeam: 'Villarreal',
+    time: '20:00',
+    competition: 'La Liga',
     status: 'upcoming'
   }
 ];
