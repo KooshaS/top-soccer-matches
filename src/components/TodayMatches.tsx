@@ -25,31 +25,8 @@ const TOP_25_NAMES = [
 
 // Today's matches - based on real fixtures from Sky Sports
 // Updated: Saturday 4th October 2025 - Premier League matchday
+// Only showing matches where BOTH teams are in top 25 UEFA clubs
 const SAMPLE_MATCHES: Match[] = [
-  {
-    id: 1,
-    homeTeam: 'Leeds United',
-    awayTeam: 'Tottenham Hotspur',
-    time: '12:30',
-    competition: 'Premier League',
-    status: 'upcoming'
-  },
-  {
-    id: 2,
-    homeTeam: 'Arsenal',
-    awayTeam: 'West Ham United',
-    time: '15:00',
-    competition: 'Premier League',
-    status: 'upcoming'
-  },
-  {
-    id: 3,
-    homeTeam: 'Manchester United',
-    awayTeam: 'Sunderland',
-    time: '15:00',
-    competition: 'Premier League',
-    status: 'upcoming'
-  },
   {
     id: 4,
     homeTeam: 'Chelsea',
@@ -79,10 +56,13 @@ export const TodayMatches = () => {
     // Get current date in Europe timezone
     const europeDate = formatInTimeZone(new Date(), 'Europe/London', 'yyyy-MM-dd');
     
-    // Show all Premier League matches for today
+    // Filter to only show upcoming matches between top 25 clubs
     // In production, you would fetch matches for the current European date from an API
     const filteredMatches = SAMPLE_MATCHES.filter(
-      match => match.status === 'upcoming'
+      match =>
+        match.status === 'upcoming' &&
+        TOP_25_NAMES.includes(match.homeTeam) &&
+        TOP_25_NAMES.includes(match.awayTeam)
     );
 
     // Simulate loading
@@ -108,7 +88,7 @@ export const TodayMatches = () => {
     return (
       <Card className="p-8 text-center border-muted">
         <p className="text-muted-foreground">
-          No matches scheduled today
+          No matches scheduled today between top 25 clubs
         </p>
       </Card>
     );
@@ -149,9 +129,9 @@ export const TodayMatches = () => {
 
       <div className="mt-4 p-3 bg-muted/30 rounded-lg border border-border">
         <p className="text-xs text-muted-foreground text-center">
-          ⚽ Premier League fixtures - Saturday 4th October 2025
+          ⚽ Showing only matches between top 25 UEFA clubs
           <br />
-          <span className="text-[10px]">Times in BST (British Summer Time)</span>
+          <span className="text-[10px]">Updates daily based on European timezone</span>
         </p>
       </div>
     </div>
