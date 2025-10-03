@@ -9,8 +9,9 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 const App = () => {
-  // Use basename only in production (GitHub Pages)
-  const basename = import.meta.env.PROD ? "/top-soccer-matches/" : "/";
+  // Use basename only for GitHub Pages deployment
+  const isGithubPages = window.location.hostname === 'kooshas.github.io';
+  const basename = isGithubPages ? "/top-soccer-matches/" : "/";
   
   return (
     <QueryClientProvider client={queryClient}>
