@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { formatInTimeZone } from 'date-fns-tz';
 
 interface Match {
   id: number;
@@ -14,36 +13,7 @@ interface Match {
   score?: { home: number; away: number };
 }
 
-// Top 25 club names for reference
-const TOP_25_NAMES = [
-  'Real Madrid', 'Manchester City', 'Bayern München', 'Liverpool', 'Paris Saint-Germain',
-  'Internazionale', 'Chelsea', 'Borussia Dortmund', 'AS Roma', 'FC Barcelona',
-  'Manchester United', 'Arsenal', 'Bayer Leverkusen', 'Atlético Madrid', 'Benfica',
-  'Atalanta', 'Villarreal', 'FC Porto', 'AC Milan', 'RB Leipzig',
-  'Lazio', 'Juventus', 'Eintracht Frankfurt', 'Club Brugge', 'Glasgow Rangers'
-];
-
-// Today's matches - based on real fixtures from Sky Sports
-// Updated: Saturday 4th October 2025 - Premier League & La Liga matchday
-// Only showing matches where BOTH teams are in top 25 UEFA clubs
-const SAMPLE_MATCHES: Match[] = [
-  {
-    id: 1,
-    homeTeam: 'Chelsea',
-    awayTeam: 'Liverpool',
-    time: '17:30',
-    competition: 'Premier League',
-    status: 'upcoming'
-  },
-  {
-    id: 2,
-    homeTeam: 'Real Madrid',
-    awayTeam: 'Villarreal',
-    time: '20:00',
-    competition: 'La Liga',
-    status: 'upcoming'
-  }
-];
+// Fetch data from JSON files (updated daily by GitHub Actions)
 
 const getStatusColor = (status: Match['status']) => {
   switch (status) {
@@ -61,25 +31,28 @@ export const TodayMatches = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get current date in Europe timezone
-    const europeDate = formatInTimeZone(new Date(), 'Europe/London', 'yyyy-MM-dd');
-    
-    // Filter to only show upcoming matches between top 25 clubs
-    // In production, you would fetch matches for the current European date from an API
-    const filteredMatches = SAMPLE_MATCHES.filter(
-      match =>
-        match.status === 'upcoming' &&
-        TOP_25_NAMES.includes(match.homeTeam) &&
-        TOP_25_NAMES.includes(match.awayTeam)
-    );
+    const fetchMatches = async () => {
+      try {
+        const basePath = import.meta.env.MODE === 'production' 
+          ? '/top-soccer-matches' 
+          : '';
+        
+        const response = await fetch(`${basePath}/data/todays-matches.json`);
+        const data = await response.json();
+        
+        // Filter to only show upcoming matches
+        const filteredMatches = data.filter((match: Match) => match.status === 'upcoming');
+        
+        setMatches(filteredMatches);
+      } catch (error) {
+        console.error('Error fetching matches:', error);
+        setMatches([]);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    // Simulate loading
-    const timer = setTimeout(() => {
-      setMatches(filteredMatches);
-      setLoading(false);
-    }, 600);
-
-    return () => clearTimeout(timer);
+    fetchMatches();
   }, []);
 
   if (loading) {
