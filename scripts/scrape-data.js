@@ -127,7 +127,14 @@ async function main() {
   console.log('Starting data scraping...');
   
   // Scrape clubs
-  const clubs = await scrapeTop25Clubs();
+  let clubs = await scrapeTop25Clubs();
+  
+  // If no clubs found, use fallback
+  if (!clubs || clubs.length === 0) {
+    console.log('No clubs scraped, using fallback data');
+    clubs = getFallbackClubs();
+  }
+  
   const clubNames = clubs.map(c => c.name);
   
   // Scrape matches

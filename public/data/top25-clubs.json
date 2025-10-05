@@ -1,1 +1,27 @@
-[]
+[
+  { "rank": 1, "name": "Real Madrid", "country": "ESP", "points": 136.0 },
+  { "rank": 2, "name": "Manchester City", "country": "ENG", "points": 133.0 },
+  { "rank": 3, "name": "Bayern München", "country": "GER", "points": 131.0 },
+  { "rank": 4, "name": "Liverpool", "country": "ENG", "points": 126.0 },
+  { "rank": 5, "name": "Paris Saint-Germain", "country": "FRA", "points": 123.0 },
+  { "rank": 6, "name": "Internazionale", "country": "ITA", "points": 120.0 },
+  { "rank": 7, "name": "Chelsea", "country": "ENG", "points": 118.0 },
+  { "rank": 8, "name": "Borussia Dortmund", "country": "GER", "points": 116.0 },
+  { "rank": 9, "name": "AS Roma", "country": "ITA", "points": 114.0 },
+  { "rank": 10, "name": "FC Barcelona", "country": "ESP", "points": 112.0 },
+  { "rank": 11, "name": "Manchester United", "country": "ENG", "points": 110.0 },
+  { "rank": 12, "name": "Arsenal", "country": "ENG", "points": 108.0 },
+  { "rank": 13, "name": "Bayer Leverkusen", "country": "GER", "points": 106.0 },
+  { "rank": 14, "name": "Atlético Madrid", "country": "ESP", "points": 104.0 },
+  { "rank": 15, "name": "Benfica", "country": "POR", "points": 102.0 },
+  { "rank": 16, "name": "Atalanta", "country": "ITA", "points": 100.0 },
+  { "rank": 17, "name": "Villarreal", "country": "ESP", "points": 98.0 },
+  { "rank": 18, "name": "FC Porto", "country": "POR", "points": 96.0 },
+  { "rank": 19, "name": "AC Milan", "country": "ITA", "points": 94.0 },
+  { "rank": 20, "name": "RB Leipzig", "country": "GER", "points": 92.0 },
+  { "rank": 21, "name": "Lazio", "country": "ITA", "points": 90.0 },
+  { "rank": 22, "name": "Juventus", "country": "ITA", "points": 88.0 },
+  { "rank": 23, "name": "Eintracht Frankfurt", "country": "GER", "points": 86.0 },
+  { "rank": 24, "name": "Club Brugge", "country": "BEL", "points": 84.0 },
+  { "rank": 25, "name": "Glasgow Rangers", "country": "SCO", "points": 82.0 }
+]
